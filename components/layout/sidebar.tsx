@@ -3,7 +3,7 @@
 import type React from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Instagram, LayoutDashboard, Zap, LogOut, Settings, BarChart3, MessageSquare, Snowflake, Clapperboard } from "lucide-react"
+import { Instagram, LayoutDashboard, Zap, LogOut, Settings, BarChart3, Snowflake, Clapperboard } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
@@ -26,7 +26,7 @@ export function Sidebar({ className, username = "Demo User", onLogout, onNavigat
           <Instagram className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="font-bold text-base tracking-tight text-white leading-none">InstaAuto</h2>
+          <h2 className="font-bold text-base tracking-tight text-white leading-none">Instagram Automation</h2>
           <span className="text-[10px] uppercase font-bold text-neutral-500 tracking-widest">Pro</span>
         </div>
       </div>
@@ -59,13 +59,6 @@ export function Sidebar({ className, username = "Demo User", onLogout, onNavigat
           icon={<Snowflake className="w-4 h-4" />}
           label="Ice Breakers"
           active={isActive("/dashboard/ice-breakers")}
-          onClick={onNavigate}
-        />
-        <NavItem
-          href="/dashboard/inbox"
-          icon={<MessageSquare className="w-4 h-4" />}
-          label="Inbox"
-          active={isActive("/dashboard/inbox")}
           onClick={onNavigate}
         />
         <NavItem

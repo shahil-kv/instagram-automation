@@ -1,4 +1,4 @@
--- One-pass Supabase setup for InstaAuto.
+-- One-pass Supabase setup for Instagram Automation.
 -- Run this in Supabase SQL Editor for a fresh project.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -14,27 +14,6 @@ CREATE TABLE IF NOT EXISTS public.users (
   page_id text,
   groq_auto_reply_enabled boolean DEFAULT false,
   ai_context text DEFAULT NULL
-);
-
-CREATE TABLE IF NOT EXISTS public.conversations (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id bigint NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  recipient_id bigint NOT NULL,
-  recipient_username text NOT NULL,
-  last_message_at timestamptz DEFAULT CURRENT_TIMESTAMP,
-  created_at timestamptz DEFAULT CURRENT_TIMESTAMP,
-  updated_at timestamptz DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS public.messages (
-  id text PRIMARY KEY,
-  conversation_id uuid REFERENCES public.conversations(id) ON DELETE CASCADE,
-  user_id bigint REFERENCES public.users(id) ON DELETE CASCADE,
-  sender_id bigint,
-  sender_username text,
-  content text,
-  is_from_instagram boolean DEFAULT true,
-  created_at timestamptz DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS public.webhook_events (
@@ -136,10 +115,6 @@ ALTER TABLE public.automations ADD COLUMN IF NOT EXISTS selected_reel_id text DE
 ALTER TABLE public.automations ADD COLUMN IF NOT EXISTS specific_media_id text DEFAULT NULL;
 ALTER TABLE public.content_pool ADD COLUMN IF NOT EXISTS thumbnail_url text;
 
-CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON public.conversations(user_id);
-CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON public.messages(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_messages_user_id ON public.messages(user_id);
-CREATE INDEX IF NOT EXISTS idx_messages_created_at ON public.messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_user_id ON public.webhook_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_user_type_time ON public.webhook_events(user_id, event_type, processed_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_data_gin ON public.webhook_events USING GIN (data);

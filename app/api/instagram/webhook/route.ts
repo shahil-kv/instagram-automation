@@ -356,7 +356,7 @@ export async function POST(request: NextRequest) {
 
               await logAutomationEvent(supabase, "comment_automation_processing", user.id, eventData)
 
-              const fallbackReplies = ["Check your DMs!", "Sent!", "Check inbox!"]
+              const fallbackReplies = ["Check your DMs!", "Sent!", "Check your messages!"]
               const configuredReplies = Array.isArray(content.public_replies)
                 ? content.public_replies.filter((reply: unknown) => typeof reply === "string" && reply.trim())
                 : []
@@ -649,71 +649,6 @@ export async function POST(request: NextRequest) {
 
           console.log(`[v0] 📩 DM from ${senderId}: "${triggerValue}"`)
 
-          // ============================================================
-          // 💾 1. SAVE INCOMING MESSAGE (Live Inbox Logic)
-          // ============================================================
-          try {
-            // A. Upsert Conversation
-            // We try to find an existing conv first to get the ID
-            let { data: conv } = await supabase
-              .from("conversations")
-              .select("id")
-              .eq("user_id", user.id)
-              .eq("recipient_id", senderId)
-              .single()
-
-            if (!conv) {
-              // Create new conversation
-
-              // 1. Try to fetch real username first
-              let realUsername = `cnt_${senderId.slice(0, 5)}...`
-              try {
-                const profileUrl = `https://graph.instagram.com/v24.0/${senderId}?fields=username&access_token=${user.access_token}`
-                const profileRes = await fetch(profileUrl)
-                const profileData = await profileRes.json()
-                if (profileData.username) {
-                  realUsername = profileData.username
-                }
-              } catch (e) {
-                console.error("[v0] Failed to fetch username", e)
-              }
-
-              const { data: newConv } = await supabase
-                .from("conversations")
-                .insert({
-                  user_id: user.id,
-                  recipient_id: senderId,
-                  recipient_username: realUsername,
-                  last_message_at: new Date().toISOString(),
-                })
-                .select("id")
-                .single()
-              conv = newConv
-            } else {
-              // Update timestamp
-              await supabase
-                .from("conversations")
-                .update({ last_message_at: new Date().toISOString() })
-                .eq("id", conv.id)
-            }
-
-            if (conv) {
-              // B. Save User Message
-              await supabase.from("messages").insert({
-                id: event.message?.mid || `mid_${Date.now()}_${Math.random()}`,
-                conversation_id: conv.id,
-                user_id: user.id,
-                sender_id: senderId,
-                sender_username: "User", // We don't have their username easily here
-                content: triggerValue,
-                is_from_instagram: true, // True = FROM the user TO us
-              })
-            }
-          } catch (err) {
-            console.error("[v0] Failed to save incoming message DB", err)
-          }
-          // ============================================================
-
           let match = null
           const dmAutomations = automations.filter((a: any) => a.trigger_source === "dm")
           if (triggerType === "postback") {
@@ -813,32 +748,13 @@ export async function POST(request: NextRequest) {
             if (json.error) console.error("[v0] 🔴 Reply Failed:", json.error)
             else {
               console.log("[v0] 🟢 Reply Sent!")
-
-              // ============================================================
-              // 💾 2. SAVE OUTGOING REPLY (Live Inbox Logic)
-              // ============================================================
-              // We need to find the conversation ID again (or pass it down)
-              // For safety, we just re-query or use the one if we scoped it.
-              // Doing a quick localized lookup for robustness:
-              const { data: conv } = await supabase
-                .from("conversations")
-                .select("id")
-                .eq("user_id", user.id)
-                .eq("recipient_id", senderId)
-                .single()
-
-              if (conv) {
-                await supabase.from("messages").insert({
-                  id: `mid_reply_${Date.now()}_${Math.random()}`,
-                  conversation_id: conv.id,
-                  user_id: user.id,
-                  sender_id: user.business_account_id, // It's us
-                  sender_username: user.username,
-                  content: replyTextLog,
-                  is_from_instagram: false, // False = FROM US
-                })
-              }
-              // ============================================================
+              await logAutomationEvent(supabase, "dm_automation_sent", user.id, {
+                sender_id: senderId,
+                automation_id: match.id || null,
+                automation_name: match.name,
+                trigger_type: triggerType,
+                reply_preview: replyTextLog,
+              })
             }
           } catch (e) {
             console.error("[v0] Network Error:", e)

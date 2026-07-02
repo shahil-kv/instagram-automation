@@ -21,34 +21,6 @@ CREATE TABLE IF NOT EXISTS public.users (
 );
 
 -- ==========================================
--- 2. Table: public.conversations
--- ==========================================
-CREATE TABLE IF NOT EXISTS public.conversations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  recipient_id TEXT NOT NULL,
-  recipient_username TEXT NOT NULL,
-  last_message_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE (user_id, recipient_id)
-);
-
--- ==========================================
--- 3. Table: public.messages
--- ==========================================
-CREATE TABLE IF NOT EXISTS public.messages (
-  id TEXT PRIMARY KEY,
-  conversation_id UUID NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
-  user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  sender_id TEXT NOT NULL,
-  sender_username TEXT NOT NULL,
-  content TEXT NOT NULL,
-  is_from_instagram BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
--- ==========================================
 -- 4. Table: public.webhook_events
 -- ==========================================
 CREATE TABLE IF NOT EXISTS public.webhook_events (
@@ -226,8 +198,6 @@ USING (bucket_id = 'reels');
 -- uncomment the commands below and create suitable RLS policies.
 --
 -- ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
--- ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE public.webhook_events ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE public.automations ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE public.media_cache ENABLE ROW LEVEL SECURITY;

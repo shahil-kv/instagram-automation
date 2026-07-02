@@ -8,29 +8,6 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create conversations table to store DM threads
-CREATE TABLE IF NOT EXISTS conversations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  recipient_id BIGINT NOT NULL,
-  recipient_username TEXT NOT NULL,
-  last_message_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create messages table to store DM history
-CREATE TABLE IF NOT EXISTS messages (
-  id TEXT PRIMARY KEY,
-  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  sender_id BIGINT NOT NULL,
-  sender_username TEXT NOT NULL,
-  content TEXT NOT NULL,
-  is_from_instagram BOOLEAN DEFAULT TRUE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
 -- Create webhook events table for debugging
 CREATE TABLE IF NOT EXISTS webhook_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -56,10 +33,6 @@ CREATE TABLE IF NOT EXISTS automations (
 );
 
 -- Create indexes for better query performance
-CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
-CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_messages_user_id ON messages(user_id);
-CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_user_id ON webhook_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_automations_user_id ON automations(user_id);
 CREATE INDEX IF NOT EXISTS idx_automations_specific_media_id ON automations(specific_media_id);

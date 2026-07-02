@@ -12,7 +12,7 @@ except ImportError:
 # --- SETTINGS ---
 # Replace these with your actual values or env vars
 API_URL = "http://localhost:3000/api/hooks/upload-washed-reel" # Local testing
-# API_URL = "https://insta-p8.vercel.app/api/hooks/upload-washed-reel" # Production
+# API_URL = "https://instagram-automation.vercel.app/api/hooks/upload-washed-reel" # Production
 
 # Load secrets from ENV
 API_SECRET = os.getenv("API_SECRET_KEY", "ayush") 

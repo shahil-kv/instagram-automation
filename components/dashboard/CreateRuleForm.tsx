@@ -37,7 +37,7 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
   const [publicReplyEnabled, setPublicReplyEnabled] = useState(true)
   const [publicReplies, setPublicReplies] = useState<string[]>([
     "Please check your direct messages for assistance.",
-    "DM sent - check your inbox.",
+    "DM sent - check your messages.",
     "Sent you the details in DM.",
   ])
 
@@ -202,7 +202,7 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
         setPublicReplyEnabled(true)
         setPublicReplies([
           "Please check your direct messages for assistance.",
-          "DM sent - check your inbox.",
+          "DM sent - check your messages.",
           "Sent you the details in DM.",
         ])
         setSelectedReel(null)

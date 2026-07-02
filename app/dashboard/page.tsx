@@ -10,7 +10,7 @@ interface DashboardStats {
         totalAutomations: number
         activeTriggers: number
         audienceReached: number
-        messagesSent: number
+        automationSends: number
     }
     recentActivity: Array<{
         id: string
@@ -74,8 +74,8 @@ export default function DashboardPage() {
                     icon={<Zap className="w-5 h-5 text-purple-400" />}
                 />
                 <StatCard
-                    title="Messages Sent"
-                    value={stats?.metrics.messagesSent.toString() || "0"}
+                    title="Automation Sends"
+                    value={stats?.metrics.automationSends.toString() || "0"}
                     trend="Lifetime"
                     icon={<MessageCircle className="w-5 h-5 text-blue-400" />}
                 />
@@ -106,7 +106,7 @@ export default function DashboardPage() {
                                     </div>
                                     <div className="min-w-0">
                                         <p className="text-sm text-white font-medium truncate">
-                                            Auto-reply to @{msg.recipient?.recipient_username || "user"}
+                                            Automation sent to @{msg.recipient?.recipient_username || "user"}
                                         </p>
                                         <p className="text-xs text-muted-foreground truncate w-full max-w-[300px]">{msg.content}</p>
                                     </div>
