@@ -14,6 +14,7 @@ interface DashboardStats {
     }
     recentActivity: Array<{
         id: string
+        label: string
         content: string
         created_at: string
         recipient?: {
@@ -106,7 +107,7 @@ export default function DashboardPage() {
                                     </div>
                                     <div className="min-w-0">
                                         <p className="text-sm text-white font-medium truncate">
-                                            Automation sent to @{msg.recipient?.recipient_username || "user"}
+                                            {msg.label} to @{msg.recipient?.recipient_username || "user"}
                                         </p>
                                         <p className="text-xs text-muted-foreground truncate w-full max-w-[300px]">{msg.content}</p>
                                     </div>

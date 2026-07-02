@@ -1,6 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
 
+const SENT_EVENT_TYPES = ["comment_automation_sent", "dm_automation_sent"]
+
+function getActivityLabel(eventType: string) {
+    if (eventType === "comment_automation_sent") return "Comment to DM sent"
+    if (eventType === "dm_automation_sent") return "DM automation sent"
+    return "Automation sent"
+}
+
 export async function GET(request: NextRequest) {
     try {
         const userId = request.nextUrl.searchParams.get("userId")
@@ -26,23 +34,23 @@ export async function GET(request: NextRequest) {
             .from("webhook_events")
             .select("*", { count: "exact", head: true })
             .eq("user_id", userId)
-            .in("event_type", ["comment_automation_sent", "dm_automation_sent"])
+            .in("event_type", SENT_EVENT_TYPES)
 
-        // 4. Audience reached from recent automation event logs
+        // 4. Audience reached from automation send logs
         const { data: audienceEvents } = await supabase
             .from("webhook_events")
             .select("data")
             .eq("user_id", userId)
-            .in("event_type", ["comment_automation_sent", "dm_automation_sent"])
+            .in("event_type", SENT_EVENT_TYPES)
             .order("processed_at", { ascending: false })
-            .limit(1000)
+            .limit(10000)
 
         // 5. Recent Activity
         const { data: recentEvents } = await supabase
             .from("webhook_events")
             .select("id, event_type, data, processed_at")
             .eq("user_id", userId)
-            .in("event_type", ["comment_automation_sent", "dm_automation_sent"])
+            .in("event_type", SENT_EVENT_TYPES)
             .order("processed_at", { ascending: false })
             .limit(5)
 
@@ -61,10 +69,11 @@ export async function GET(request: NextRequest) {
             },
             recentActivity: (recentEvents || []).map((event: any) => ({
                 id: event.id,
-                content: event.data?.reply_preview || event.data?.automation_name || event.event_type,
+                label: getActivityLabel(event.event_type),
+                content: event.data?.reply_preview || event.data?.public_reply_preview || event.data?.automation_name || getActivityLabel(event.event_type),
                 created_at: event.processed_at,
                 recipient: {
-                    recipient_username: event.data?.sender_id || "user",
+                    recipient_username: event.data?.sender_username || event.data?.sender_id || "user",
                 },
             }))
         })

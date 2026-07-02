@@ -486,6 +486,8 @@ export async function POST(request: NextRequest) {
                   ...eventData,
                   public_reply_sent: publicReplySent,
                   dm_sent: dmSent,
+                  public_reply_preview: publicReply,
+                  reply_preview: content.message || content.card?.title || match.name,
                 })
               }
             }
