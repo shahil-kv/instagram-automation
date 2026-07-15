@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -48,22 +48,9 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
   // Media
   const [reels, setReels] = useState<any[]>([])
   const [loadingReels, setLoadingReels] = useState(false)
+  const [reelSearchQuery, setReelSearchQuery] = useState("")
 
-  useEffect(() => {
-    if (userId) loadReels()
-  }, [userId])
-
-  // Auto-generate name suggestion
-  useEffect(() => {
-    if (name) return // Don't overwrite user's custom name
-    if (replyToAll) {
-      setName(`All Comments → Reply`)
-    } else if (triggers.length > 0) {
-      setName(`${triggers.slice(0, 2).join(", ")} → Auto Reply`)
-    }
-  }, [triggers, replyToAll])
-
-  const loadReels = async () => {
+  const loadReels = useCallback(async () => {
     try {
       setLoadingReels(true)
       const res = await fetch(`/api/instagram/media?userId=${userId}`)
@@ -75,7 +62,22 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
     } finally {
       setLoadingReels(false)
     }
-  }
+  }, [userId])
+
+  useEffect(() => {
+    if (userId) loadReels()
+  }, [userId, loadReels])
+
+  // Auto-generate name suggestion
+  useEffect(() => {
+    if (name) return // Don't overwrite user's custom name
+    if (replyToAll) {
+      setName(`All Comments → Reply`)
+    } else if (triggers.length > 0) {
+      setName(`${triggers.slice(0, 2).join(", ")} → Auto Reply`)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [triggers, replyToAll])
 
   const handleAddButton = () => {
     if (buttons.length >= 3) return
@@ -248,9 +250,12 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
   )
 
   const ReelPicker = () => {
-    const filteredReels = triggerSource === 'story'
+    const filteredReels = (triggerSource === 'story'
       ? reels.filter((r: any) => r.media_type === 'STORY' || r.media_product_type === 'STORY')
-      : reels
+      : reels).filter((r: any) => 
+        !reelSearchQuery || 
+        (r.caption || '').toLowerCase().includes(reelSearchQuery.toLowerCase())
+      )
 
     if (loadingReels) {
       return (
@@ -260,42 +265,52 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
       )
     }
 
-    if (filteredReels.length === 0) {
-      return (
-        <div className="absolute top-full left-0 right-0 mt-2 p-4 bg-neutral-950 border border-white/10 rounded-xl text-center z-50">
-          <p className="text-neutral-500 text-sm">{triggerSource === 'story' ? 'No active stories' : 'No posts found'}</p>
-        </div>
-      )
-    }
-
     return (
-      <div className="absolute top-full left-0 right-0 mt-2 max-h-56 overflow-y-auto bg-neutral-950 border border-white/10 rounded-xl z-50 shadow-2xl">
-        {filteredReels.map((reel: any) => {
-          const isStory = reel.media_type === 'STORY' || reel.media_product_type === 'STORY'
-          if (triggerSource === 'story' && !isStory) return null
-          const label = isStory ? 'Story' : reel.media_type === 'VIDEO' ? 'Reel' : reel.media_type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Post'
+      <div className="absolute top-full left-0 right-0 mt-2 bg-neutral-950 border border-white/10 rounded-xl z-50 shadow-2xl overflow-hidden flex flex-col">
+        <div className="p-2 border-b border-white/10">
+          <Input 
+            value={reelSearchQuery} 
+            onChange={(e) => setReelSearchQuery(e.target.value)} 
+            placeholder="Search posts..." 
+            className="h-8 text-xs bg-white/5 border-white/10"
+            autoFocus
+          />
+        </div>
+        <div className="max-h-56 overflow-y-auto">
+          {filteredReels.length === 0 ? (
+            <div className="p-4 text-center">
+              <p className="text-neutral-500 text-sm">{triggerSource === 'story' ? 'No active stories' : 'No posts found'}</p>
+            </div>
+          ) : (
+            filteredReels.map((reel: any) => {
+              const isStory = reel.media_type === 'STORY' || reel.media_product_type === 'STORY'
+              if (triggerSource === 'story' && !isStory) return null
+              const label = isStory ? 'Story' : reel.media_type === 'VIDEO' ? 'Reel' : reel.media_type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Post'
+              const imageUrl = reel.thumbnail_url || reel.media_url
 
-          return (
-            <button
-              key={reel.id}
-              type="button"
-              onClick={() => { setSelectedReel(reel); setShowReelPicker(false) }}
-              className="w-full p-3 flex items-center gap-3 hover:bg-white/5 transition-colors text-left border-b border-white/5 last:border-0"
-            >
-              {reel.image_url ? (
-                <img src={reel.image_url} alt="" className="w-10 h-10 rounded object-cover opacity-80" />
-              ) : (
-                <div className="w-10 h-10 rounded bg-white/5 flex items-center justify-center">
-                  <Film className="w-4 h-4 text-neutral-600" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-white truncate">{reel.caption || 'Untitled'}</p>
-                <span className="text-[10px] text-neutral-500 uppercase">{label}</span>
-              </div>
-            </button>
-          )
-        })}
+              return (
+                <button
+                  key={reel.id}
+                  type="button"
+                  onClick={() => { setSelectedReel(reel); setShowReelPicker(false) }}
+                  className="w-full p-3 flex items-center gap-3 hover:bg-white/5 transition-colors text-left border-b border-white/5 last:border-0"
+                >
+                  {imageUrl ? (
+                    <img src={imageUrl} alt="" className="w-10 h-10 rounded object-cover opacity-80" />
+                  ) : (
+                    <div className="w-10 h-10 rounded bg-white/5 flex items-center justify-center">
+                      <Film className="w-4 h-4 text-neutral-600" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white truncate">{reel.caption || 'Untitled'}</p>
+                    <span className="text-[10px] text-neutral-500 uppercase">{label}</span>
+                  </div>
+                </button>
+              )
+            })
+          )}
+        </div>
       </div>
     )
   }
@@ -308,7 +323,7 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
     return (
       <div className="mt-4 flex justify-end">
         <div className="max-w-[260px] animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm shadow-lg shadow-blue-500/20">
+          <div className="bg-linear-to-br from-blue-500 to-blue-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 text-sm shadow-lg shadow-blue-500/20">
             {type === "text" ? (
               <p className="leading-relaxed">{messageText.slice(0, 120)}{messageText.length > 120 && "..."}</p>
             ) : (
@@ -426,13 +441,13 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
           <div className="relative">
             <button
               type="button"
-              onClick={() => setShowReelPicker(!showReelPicker)}
+              onClick={() => { setShowReelPicker(!showReelPicker); setReelSearchQuery("") }}
               className="w-full p-3 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/5 transition-colors text-left flex items-center gap-3"
             >
               {selectedReel ? (
                 <>
-                  {selectedReel.image_url && (
-                    <img src={selectedReel.image_url} alt="" className="w-10 h-10 rounded object-cover" />
+                  {(selectedReel.thumbnail_url || selectedReel.media_url) && (
+                    <img src={selectedReel.thumbnail_url || selectedReel.media_url} alt="" className="w-10 h-10 rounded object-cover" />
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-white truncate">{selectedReel.caption || 'No caption'}</p>

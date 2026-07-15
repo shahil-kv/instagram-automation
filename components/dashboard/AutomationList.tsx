@@ -97,8 +97,8 @@ function RuleCard({ rule, onDelete, index, isSpecific, mediaUrl }: {
   const keywords = rule.trigger_value.split(",").map(k => k.trim()).filter(Boolean)
   const isCard = !!rule.response_content?.card
   const responsePreview = isCard
-    ? rule.response_content.card.title
-    : rule.response_content?.message?.slice(0, 50) + (rule.response_content?.message?.length > 50 ? "..." : "")
+    ? rule.response_content?.card?.title
+    : rule.response_content?.message?.slice(0, 50) + ((rule.response_content?.message?.length ?? 0) > 50 ? "..." : "")
 
   return (
     <div

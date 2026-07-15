@@ -4,9 +4,8 @@ import { useEffect, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Sparkles, Brain, Loader2 } from "lucide-react"
 import { Sidebar } from "@/components/layout/sidebar"
-import { Switch } from "@/components/ui/switch"
 // 👇 1. Import is here (Good)
-import { IceBreakers } from "@/components/dashboard/IceBreakers"
+import { IceBreakersManager } from "@/components/dashboard/IceBreakersManager"
 import { AutomationList } from "@/components/dashboard/AutomationList"
 import { CreateRuleForm } from "@/components/dashboard/CreateRuleForm"
 import type { Automation } from "@/lib/types"
@@ -129,12 +128,12 @@ export function DashboardView({
                       <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Configure a new trigger</p>
                     </div>
                   </div>
-                  <CreateRuleForm userId={userId} onSuccess={onRefresh} />
+                  <CreateRuleForm userId={userId} triggerSource="comment" onSuccess={onRefresh} />
                 </Card>
               </div>
 
               {/* 2. Ice Breakers */}
-              <IceBreakers userId={userId} />
+              <IceBreakersManager />
             </div>
           </div>
         </div>
