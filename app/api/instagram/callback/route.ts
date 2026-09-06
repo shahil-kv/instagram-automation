@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
 import { normalizeAuthCode } from "@/lib/instagram-auth"
-import { exchangeForLongLivedToken, logInstagramApiError } from "@/lib/instagram-token"
+import { exchangeForLongLivedToken, logInstagramApiError, logInstagramTokenHealthy } from "@/lib/instagram-token"
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -144,6 +144,11 @@ export async function POST(request: NextRequest) {
       .upsert({ id: loginUserId, ...updates }, { onConflict: "id" })
 
     if (upsertError) throw upsertError
+
+    // Clears any prior failure: alerts compare the newest error to the newest success.
+    await logInstagramTokenHealthy(supabase, loginUserId, "oauth_connect", {
+      expires_at: tokenExpiresAt,
+    })
 
     const response = NextResponse.json({ success: true, username, userId: loginUserId })
     response.cookies.set("insta_session", JSON.stringify({ username, userId: loginUserId }), {

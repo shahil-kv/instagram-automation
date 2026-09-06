@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
   const { data: user } = await supabase
     .from("users")
-    .select("id, username, access_token, token_expires_at")
+    .select("id, username, access_token, token_expires_at, updated_at")
     .eq("id", userId)
     .single()
 
@@ -24,18 +24,44 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ connected: false, needsReconnect: true, reason: "not_connected" })
   }
 
-  // Any auth failure logged in the last 3 days means automations are down now.
   const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
-  const { data: authErrors } = await supabase
-    .from("webhook_events")
-    .select("processed_at, data")
-    .eq("user_id", user.id)
-    .eq("event_type", "instagram_token_invalid")
-    .gte("processed_at", since)
-    .order("processed_at", { ascending: false })
-    .limit(1)
 
-  const lastAuthError = authErrors?.[0] || null
+  const [{ data: authErrors }, { data: healthy }] = await Promise.all([
+    supabase
+      .from("webhook_events")
+      .select("processed_at, data")
+      .eq("user_id", user.id)
+      .eq("event_type", "instagram_token_invalid")
+      .gte("processed_at", since)
+      .order("processed_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("webhook_events")
+      .select("processed_at")
+      .eq("user_id", user.id)
+      .eq("event_type", "instagram_token_connected")
+      .order("processed_at", { ascending: false })
+      .limit(1),
+  ])
+
+  const lastErrorAt = authErrors?.[0]?.processed_at || null
+
+  // A failure only matters if nothing has succeeded since. `updated_at` is the
+  // floor for rows that predate health markers — the callback bumps it on every
+  // successful connect, so an error older than it is already resolved.
+  const lastSuccessAt =
+    [healthy?.[0]?.processed_at, user.updated_at]
+      .filter(Boolean)
+      .map((t: string) => ({ t, ms: new Date(t).getTime() }))
+      .filter((x) => !Number.isNaN(x.ms))
+      .sort((a, b) => a.ms - b.ms)
+      .pop()?.t || null
+
+  const unresolvedError = Boolean(
+    lastErrorAt && (!lastSuccessAt || new Date(lastErrorAt) > new Date(lastSuccessAt)),
+  )
+  const lastAuthError = unresolvedError ? authErrors?.[0] : null
+
   const daysLeft = daysUntilExpiry(user.token_expires_at)
   const expired = daysLeft !== null && daysLeft <= 0
 
@@ -51,5 +77,7 @@ export async function GET(request: NextRequest) {
     reason: expired ? "expired" : lastAuthError ? "auth_error" : null,
     lastErrorAt: lastAuthError?.processed_at || null,
     lastErrorStep: (lastAuthError?.data as any)?.step || null,
+    // Exposed for debugging: an error older than this is considered resolved.
+    lastSuccessAt,
   })
 }

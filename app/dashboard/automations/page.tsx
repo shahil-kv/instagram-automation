@@ -7,12 +7,14 @@ import { CreateRuleForm } from "@/components/dashboard/CreateRuleForm"
 import { MessageCircle, Send, Sparkles, Zap, Plus, Brain, Loader2 } from "lucide-react"
 import { IceBreakersManager } from "@/components/dashboard/IceBreakersManager"
 import type { Automation } from "@/lib/types"
+import { FEATURES } from "@/lib/features"
 
 export default function AutomationsPage() {
     const { userId, isLoading: isSessionLoading } = useInstagramSession()
     const [automations, setAutomations] = useState<Automation[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [activeTab, setActiveTab] = useState<'comment' | 'dm' | 'story'>('comment')
+
     const [showCreateForm, setShowCreateForm] = useState(false)
     const [aiEnabled, setAiEnabled] = useState(false)
     const [aiLoading, setAiLoading] = useState(true)
@@ -89,7 +91,12 @@ export default function AutomationsPage() {
     if (isSessionLoading) return <div className="h-screen flex items-center justify-center bg-black"><div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin" /></div>
     if (!userId) return <div className="h-screen flex items-center justify-center bg-black text-neutral-500">Please log in</div>
 
-    const filteredAutomations = automations.filter(a => a.trigger_source === activeTab)
+    // Story rules are hidden while the feature is off, so they must not be
+    // counted in the header either — "17 active rules" with 15 reachable is a lie.
+    const visibleAutomations = FEATURES.stories
+        ? automations
+        : automations.filter(a => a.trigger_source !== 'story')
+    const filteredAutomations = visibleAutomations.filter(a => a.trigger_source === activeTab)
     const counts = {
         comment: automations.filter(a => a.trigger_source === 'comment').length,
         dm: automations.filter(a => a.trigger_source === 'dm').length,
@@ -99,7 +106,9 @@ export default function AutomationsPage() {
     const tabs = [
         { key: 'comment' as const, icon: <MessageCircle className="w-4 h-4" />, label: 'Comments', count: counts.comment },
         { key: 'dm' as const, icon: <Send className="w-4 h-4" />, label: 'DMs', count: counts.dm },
-        { key: 'story' as const, icon: <Sparkles className="w-4 h-4" />, label: 'Stories', count: counts.story },
+        ...(FEATURES.stories
+            ? [{ key: 'story' as const, icon: <Sparkles className="w-4 h-4" />, label: 'Stories', count: counts.story }]
+            : []),
     ]
 
     return (
@@ -113,7 +122,7 @@ export default function AutomationsPage() {
                             Automations
                         </h1>
                         <p className="text-neutral-500 text-sm mt-0.5">
-                            {automations.length} active rule{automations.length !== 1 ? 's' : ''}
+                            {visibleAutomations.length} active rule{visibleAutomations.length !== 1 ? 's' : ''}
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -235,6 +244,7 @@ export default function AutomationsPage() {
                     </div>
                 ) : (
                     <AutomationList
+                        key={activeTab}
                         automations={filteredAutomations}
                         onDelete={handleDeleteRule}
                         userId={userId}

@@ -1,13 +1,14 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Trash2, Lock, Film, ArrowRight, ArrowLeft, Check, Sparkles, MessageCircle, Send, AtSign, Heart, MessageSquare } from "lucide-react"
+import { Plus, Trash2, Lock, ArrowRight, ArrowLeft, Check, Sparkles, MessageCircle, Send, AtSign, Heart, MessageSquare } from "lucide-react"
 import { TagInput } from "@/components/ui/tag-input"
+import { ReelPicker } from "@/components/dashboard/ReelPicker"
 import type { ProButton } from "@/lib/types"
 import { toast } from "sonner"
 
@@ -44,29 +45,6 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
   // Step 3: Settings
   const [name, setName] = useState("")
   const [checkFollow, setCheckFollow] = useState(false)
-
-  // Media
-  const [reels, setReels] = useState<any[]>([])
-  const [loadingReels, setLoadingReels] = useState(false)
-  const [reelSearchQuery, setReelSearchQuery] = useState("")
-
-  const loadReels = useCallback(async () => {
-    try {
-      setLoadingReels(true)
-      const res = await fetch(`/api/instagram/media?userId=${userId}`)
-      const responseJson = await res.json()
-      if (responseJson.data && Array.isArray(responseJson.data)) setReels(responseJson.data)
-      else if (Array.isArray(responseJson)) setReels(responseJson)
-    } catch (err) {
-      console.error("[v0] Failed to load reels:", err)
-    } finally {
-      setLoadingReels(false)
-    }
-  }, [userId])
-
-  useEffect(() => {
-    if (userId) loadReels()
-  }, [userId, loadReels])
 
   // Auto-generate name suggestion
   useEffect(() => {
@@ -249,72 +227,6 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
     </div>
   )
 
-  const ReelPicker = () => {
-    const filteredReels = (triggerSource === 'story'
-      ? reels.filter((r: any) => r.media_type === 'STORY' || r.media_product_type === 'STORY')
-      : reels).filter((r: any) => 
-        !reelSearchQuery || 
-        (r.caption || '').toLowerCase().includes(reelSearchQuery.toLowerCase())
-      )
-
-    if (loadingReels) {
-      return (
-        <div className="absolute top-full left-0 right-0 mt-2 p-4 bg-neutral-950 border border-white/10 rounded-xl text-center z-50">
-          <p className="text-neutral-400 text-sm">Loading media...</p>
-        </div>
-      )
-    }
-
-    return (
-      <div className="absolute top-full left-0 right-0 mt-2 bg-neutral-950 border border-white/10 rounded-xl z-50 shadow-2xl overflow-hidden flex flex-col">
-        <div className="p-2 border-b border-white/10">
-          <Input 
-            value={reelSearchQuery} 
-            onChange={(e) => setReelSearchQuery(e.target.value)} 
-            placeholder="Search posts..." 
-            className="h-8 text-xs bg-white/5 border-white/10"
-            autoFocus
-          />
-        </div>
-        <div className="max-h-56 overflow-y-auto">
-          {filteredReels.length === 0 ? (
-            <div className="p-4 text-center">
-              <p className="text-neutral-500 text-sm">{triggerSource === 'story' ? 'No active stories' : 'No posts found'}</p>
-            </div>
-          ) : (
-            filteredReels.map((reel: any) => {
-              const isStory = reel.media_type === 'STORY' || reel.media_product_type === 'STORY'
-              if (triggerSource === 'story' && !isStory) return null
-              const label = isStory ? 'Story' : reel.media_type === 'VIDEO' ? 'Reel' : reel.media_type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Post'
-              const imageUrl = reel.thumbnail_url || reel.media_url
-
-              return (
-                <button
-                  key={reel.id}
-                  type="button"
-                  onClick={() => { setSelectedReel(reel); setShowReelPicker(false) }}
-                  className="w-full p-3 flex items-center gap-3 hover:bg-white/5 transition-colors text-left border-b border-white/5 last:border-0"
-                >
-                  {imageUrl ? (
-                    <img src={imageUrl} alt="" className="w-10 h-10 rounded object-cover opacity-80" />
-                  ) : (
-                    <div className="w-10 h-10 rounded bg-white/5 flex items-center justify-center">
-                      <Film className="w-4 h-4 text-neutral-600" />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white truncate">{reel.caption || 'Untitled'}</p>
-                    <span className="text-[10px] text-neutral-500 uppercase">{label}</span>
-                  </div>
-                </button>
-              )
-            })
-          )}
-        </div>
-      </div>
-    )
-  }
-
   // DM Preview Bubble
   const DMPreview = () => {
     const previewText = type === "text" ? messageText : cardTitle
@@ -441,7 +353,7 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
           <div className="relative">
             <button
               type="button"
-              onClick={() => { setShowReelPicker(!showReelPicker); setReelSearchQuery("") }}
+              onClick={() => setShowReelPicker(!showReelPicker)}
               className="w-full p-3 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/5 transition-colors text-left flex items-center gap-3"
             >
               {selectedReel ? (
@@ -460,7 +372,16 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
                 </span>
               )}
             </button>
-            {showReelPicker && <ReelPicker />}
+            {showReelPicker && (
+              <ReelPicker
+                userId={userId}
+                triggerSource={triggerSource}
+                onSelect={(reel) => {
+                  setSelectedReel(reel)
+                  setShowReelPicker(false)
+                }}
+              />
+            )}
           </div>
         </div>
       )}

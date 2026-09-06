@@ -4,7 +4,10 @@ import { Sidebar } from "@/components/layout/sidebar"
 import { MobileNav } from "@/components/layout/mobile-nav"
 import { useInstagramSession } from "@/hooks/use-instagram-session"
 import { ConnectionAlert } from "@/components/dashboard/ConnectionAlert"
+import { DISABLED_ROUTES } from "@/lib/features"
 import { Loader2 } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { useEffect } from "react"
 
 export default function DashboardLayout({
     children,
@@ -12,8 +15,19 @@ export default function DashboardLayout({
     children: React.ReactNode
 }) {
     const { userId, username, logout, isLoading } = useInstagramSession()
+    const pathname = usePathname()
+    const router = useRouter()
 
-    if (isLoading) {
+    // Bookmarks and stale links to switched-off sections land back on the dashboard.
+    const isDisabledRoute = DISABLED_ROUTES.some(
+        (route) => pathname === route || pathname.startsWith(`${route}/`),
+    )
+
+    useEffect(() => {
+        if (isDisabledRoute) router.replace("/dashboard")
+    }, [isDisabledRoute, router])
+
+    if (isLoading || isDisabledRoute) {
         return (
             <div className="flex h-screen items-center justify-center bg-black text-white">
                 <Loader2 className="h-8 w-8 animate-spin text-white" />

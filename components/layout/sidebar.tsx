@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Instagram, LayoutDashboard, Zap, LogOut, Settings, BarChart3, Snowflake, Clapperboard } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { FEATURES } from "@/lib/features"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {
   username?: string
@@ -47,27 +48,33 @@ export function Sidebar({ className, username = "Demo User", onLogout, onNavigat
           active={isActive("/dashboard/automations")}
           onClick={onNavigate}
         />
-        <NavItem
-          href="/dashboard/publisher"
-          icon={<Clapperboard className="w-4 h-4" />}
-          label="Publisher"
-          active={isActive("/dashboard/publisher")}
-          onClick={onNavigate}
-        />
-        <NavItem
-          href="/dashboard/ice-breakers"
-          icon={<Snowflake className="w-4 h-4" />}
-          label="Ice Breakers"
-          active={isActive("/dashboard/ice-breakers")}
-          onClick={onNavigate}
-        />
-        <NavItem
-          href="/dashboard/analytics"
-          icon={<BarChart3 className="w-4 h-4" />}
-          label="Analytics"
-          active={isActive("/dashboard/analytics")}
-          onClick={onNavigate}
-        />
+        {FEATURES.publisher && (
+          <NavItem
+            href="/dashboard/publisher"
+            icon={<Clapperboard className="w-4 h-4" />}
+            label="Publisher"
+            active={isActive("/dashboard/publisher")}
+            onClick={onNavigate}
+          />
+        )}
+        {FEATURES.iceBreakers && (
+          <NavItem
+            href="/dashboard/ice-breakers"
+            icon={<Snowflake className="w-4 h-4" />}
+            label="Ice Breakers"
+            active={isActive("/dashboard/ice-breakers")}
+            onClick={onNavigate}
+          />
+        )}
+        {FEATURES.analytics && (
+          <NavItem
+            href="/dashboard/analytics"
+            icon={<BarChart3 className="w-4 h-4" />}
+            label="Analytics"
+            active={isActive("/dashboard/analytics")}
+            onClick={onNavigate}
+          />
+        )}
 
         <div className="px-2 mb-2 mt-6 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/50">
           System

@@ -109,6 +109,29 @@ export async function logInstagramApiError(
   }
 }
 
+/**
+ * Positive health marker. Alerts must compare the newest failure against the
+ * newest success — without this, an error logged seconds before a successful
+ * reconnect keeps firing the "connection broken" banner forever.
+ */
+export async function logInstagramTokenHealthy(
+  supabase: any,
+  userId: string | number,
+  step: string,
+  extra: Record<string, any> = {},
+) {
+  if (!supabase || userId == null) return
+  try {
+    await supabase.from("webhook_events").insert({
+      event_type: "instagram_token_connected",
+      user_id: userId,
+      data: { step, ...extra },
+    })
+  } catch (e) {
+    console.error("[v0] ⚠️ Failed to record token health event:", e)
+  }
+}
+
 /** Short-lived (1h) token → long-lived (60d) token. */
 export async function exchangeForLongLivedToken(
   shortLivedToken: string,
@@ -216,6 +239,9 @@ export async function getFreshAccessToken(
     console.log(
       `[v0] 🔄 Refreshed Instagram token for ${user.username ?? user.id} → expires ${refreshed.expiresAt}`,
     )
+    await logInstagramTokenHealthy(supabase, user.id, "token_refresh", {
+      expires_at: refreshed.expiresAt,
+    })
     return refreshed.accessToken
   } catch (e: any) {
     const igError = e?.instagramError || { message: e?.message || String(e) }

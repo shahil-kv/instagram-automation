@@ -1,10 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Trash2, Globe, Instagram, Zap, ArrowRight, Lock, MessageCircle, Send } from "lucide-react"
 import type { Automation } from "@/lib/types"
+import { Pagination } from "@/components/dashboard/Pagination"
+
+const PAGE_SIZE = 10
 
 interface AutomationListProps {
   automations: Automation[]
@@ -14,25 +17,55 @@ interface AutomationListProps {
 
 export function AutomationList({ automations, onDelete, userId }: AutomationListProps) {
   const [mediaMap, setMediaMap] = useState<Record<string, string>>({})
+  const [page, setPage] = useState(1)
 
-  const globalRules = automations.filter((rule) => !rule.specific_media_id)
-  const postSpecificRules = automations.filter((rule) => rule.specific_media_id)
+  // Global rules first, then post-specific — one flat list so pages stay full.
+  const ordered = useMemo(() => {
+    const global = automations.filter((rule) => !rule.specific_media_id)
+    const specific = automations.filter((rule) => rule.specific_media_id)
+    return [...global, ...specific]
+  }, [automations])
+
+  const totalPages = Math.max(1, Math.ceil(ordered.length / PAGE_SIZE))
+  // Deleting the last rule on the final page must not strand you on an empty one.
+  const safePage = Math.min(page, totalPages)
+  const visible = ordered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  const neededIds = useMemo(
+    () => visible.map((r) => r.specific_media_id).filter(Boolean) as string[],
+    [visible],
+  )
+
+  // Ids we've already asked for. Without this, a deleted post never lands in
+  // mediaMap, stays "missing", and the effect refetches itself forever.
+  const requestedIds = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    if (!userId || postSpecificRules.length === 0) return
+    const missing = neededIds.filter((id) => !requestedIds.current.has(id))
+    if (!userId || missing.length === 0) return
+    missing.forEach((id) => requestedIds.current.add(id))
+
     const fetchMedia = async () => {
       try {
-        const res = await fetch(`/api/instagram/media?userId=${userId}`)
+        // Fetch thumbnails by id for the rules on THIS page. The old code pulled
+        // the first 24 posts and hoped, so rules on older posts had no thumbnail.
+        const res = await fetch(
+          `/api/instagram/media?userId=${userId}&ids=${encodeURIComponent(missing.join(","))}`,
+        )
         const data = await res.json()
         if (data.data && Array.isArray(data.data)) {
-          const map: Record<string, string> = {}
-          data.data.forEach((item: any) => { map[item.id] = item.thumbnail_url || item.media_url })
-          setMediaMap(map)
+          setMediaMap((prev) => {
+            const map = { ...prev }
+            data.data.forEach((item: any) => {
+              if (item?.id) map[item.id] = item.thumbnail_url || item.media_url
+            })
+            return map
+          })
         }
       } catch (e) { console.error("Failed to load thumbnails", e) }
     }
     fetchMedia()
-  }, [userId, automations.length])
+  }, [userId, neededIds])
 
   if (automations.length === 0) {
     return (
@@ -55,33 +88,27 @@ export function AutomationList({ automations, onDelete, userId }: AutomationList
           Active Rules
           <span className="bg-white/10 text-white px-2 py-0.5 rounded-full text-[10px]">{automations.length}</span>
         </h2>
-      </div>
-
-      <div className="space-y-3">
-        {/* Global rules */}
-        {globalRules.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-blue-400 ml-1">
-              <Globe className="w-3 h-3" /> Global
-            </div>
-            {globalRules.map((rule, idx) => (
-              <RuleCard key={rule.id} rule={rule} onDelete={onDelete} index={idx} />
-            ))}
-          </div>
-        )}
-
-        {/* Post-specific rules */}
-        {postSpecificRules.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-pink-400 ml-1">
-              <Instagram className="w-3 h-3" /> Post Specific
-            </div>
-            {postSpecificRules.map((rule, idx) => (
-              <RuleCard key={rule.id} rule={rule} onDelete={onDelete} index={idx} mediaUrl={mediaMap[rule.specific_media_id || ""]} isSpecific />
-            ))}
-          </div>
+        {totalPages > 1 && (
+          <span className="text-[10px] text-neutral-600">
+            {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, ordered.length)} of {ordered.length}
+          </span>
         )}
       </div>
+
+      <div className="space-y-2">
+        {visible.map((rule, idx) => (
+          <RuleCard
+            key={rule.id}
+            rule={rule}
+            onDelete={onDelete}
+            index={idx}
+            mediaUrl={mediaMap[rule.specific_media_id || ""]}
+            isSpecific={Boolean(rule.specific_media_id)}
+          />
+        ))}
+      </div>
+
+      <Pagination page={safePage} totalPages={totalPages} onPageChange={setPage} />
     </div>
   )
 }
@@ -102,13 +129,13 @@ function RuleCard({ rule, onDelete, index, isSpecific, mediaUrl }: {
 
   return (
     <div
-      className="group p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/10 transition-all duration-200"
-      style={{ animationDelay: `${index * 60}ms` }}
+      className="group px-3 py-2.5 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/10 transition-all duration-200"
+      style={{ animationDelay: `${index * 40}ms` }}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-3">
         {/* Left icon */}
         {isSpecific ? (
-          <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/5 shrink-0 border border-white/10">
+          <div className="w-9 h-9 rounded-lg overflow-hidden bg-white/5 shrink-0 border border-white/10">
             {mediaUrl ? (
               <img src={mediaUrl} alt="" className="w-full h-full object-cover" />
             ) : (
@@ -118,15 +145,25 @@ function RuleCard({ rule, onDelete, index, isSpecific, mediaUrl }: {
             )}
           </div>
         ) : (
-          <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center border border-blue-500/20 shrink-0">
+          <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center border border-blue-500/20 shrink-0">
             <Globe className="w-4 h-4 text-blue-400" />
           </div>
         )}
 
         {/* Content */}
-        <div className="flex-1 min-w-0 space-y-2">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-white truncate">{rule.name}</h4>
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <h4 className="text-sm font-bold text-white truncate">{rule.name}</h4>
+              <span
+                className={`shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${isSpecific
+                  ? "bg-pink-500/10 text-pink-400 border border-pink-500/20"
+                  : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                  }`}
+              >
+                {isSpecific ? "Post" : "Global"}
+              </span>
+            </div>
             {confirming ? (
               <div className="flex items-center gap-1 animate-in fade-in">
                 <Button size="sm" variant="ghost" onClick={() => setConfirming(false)} className="h-7 text-xs text-neutral-500">Cancel</Button>

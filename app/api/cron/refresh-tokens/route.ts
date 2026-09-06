@@ -6,6 +6,7 @@ import {
   hasImplausibleExpiry,
   isTokenTooNewError,
   logInstagramApiError,
+  logInstagramTokenHealthy,
   needsRefresh,
   probeToken,
   refreshLongLivedToken,
@@ -90,7 +91,13 @@ export async function GET(request: NextRequest) {
       continue
     }
 
-    // 2. Alive. Refresh if near expiry, if the stored expiry is untrustworthy, or if forced.
+    // 2. Alive. A successful probe is the strongest possible health signal — record it
+    //    so stale failures stop driving the dashboard alert.
+    await logInstagramTokenHealthy(supabase, user.id, "token_probe", {
+      token_expires_at: user.token_expires_at,
+    })
+
+    // 3. Refresh if near expiry, if the stored expiry is untrustworthy, or if forced.
     if (!force && !suspectExpiry && !needsRefresh(user.token_expires_at)) {
       results.push({ user: user.username, status: "ok", days_left: daysLeft?.toFixed(1) })
       continue
