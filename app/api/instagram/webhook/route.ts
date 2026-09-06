@@ -437,26 +437,17 @@ export async function POST(request: NextRequest) {
               let gateOutcome: string | null = null
 
               if (content.check_follow === true) {
-                // Follow Gate. A commenter who has never messaged us cannot be
-                // looked up (error 230), so the honest flow is: ask them to tap a
-                // button, which grants consent, then verify for real on the postback.
-                const followCheck = await checkFollowStatus(senderId, user.access_token)
-                gateOutcome = followCheck.status
-
-                if (followCheck.status === "follower") {
-                  // Already consented AND following — deliver immediately, no extra tap.
-                  apiBody.message = buildResponseMessage(content)
-                } else if (followCheck.status === "not_follower") {
-                  apiBody.message = buildFollowGateCard(match.id, user.username, content.gate_message)
-                } else {
-                  // no_consent (the common case) or a lookup error: we cannot tell
-                  // yet, so prompt for the tap rather than guessing either way.
-                  apiBody.message = buildUnlockPrompt(match.id, content.gate_message)
-                  if (followCheck.status === "error") {
-                    console.warn("[v0] ⚠️ Follow lookup failed, falling back to unlock prompt:", JSON.stringify(followCheck.error))
-                  }
-                }
+                // Follow Gate, step 1: ALWAYS the same opener, for everyone.
+                //
+                // Deliberately no follow check here. Leading with "follow me" to a
+                // known non-follower asks before giving anything — the cold ask.
+                // The first tap costs nothing, and once they've taken it they are
+                // committed and expecting the link, which is when the follow ask
+                // actually lands. Verification happens on the postback instead.
+                gateOutcome = "prompted"
+                apiBody.message = buildUnlockPrompt(match.id, content.gate_message)
               } else {
+                // Gate off: the link, immediately. No buttons, no taps.
                 apiBody.message = buildResponseMessage(content)
               }
 
