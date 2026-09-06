@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
     })
     if (after) params.set("after", after)
 
-    // Stories live on a separate edge — /me/media never returns them.
+    // Storiess live on a separate edge — /me/media never returns them.
     const url = `https://graph.instagram.com/me/${source}?${params.toString()}`
 
     console.log(`[v0] Fetching ${source} page (limit=${limit}${after ? ", paged" : ""})`)
