@@ -1,7 +1,8 @@
 /* @ts-nocheck */
 
-import { type NextRequest, NextResponse } from "next/server"
+import { after, type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
+import { getFreshAccessToken, logInstagramApiError, needsRefresh } from "@/lib/instagram-token"
 
 const WEBHOOK_VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || "your_verify_token"
 const COMMENT_COOLDOWN_MINUTES = Number(process.env.INSTAGRAM_COMMENT_COOLDOWN_MINUTES || 10)
@@ -261,6 +262,18 @@ export async function POST(request: NextRequest) {
         continue
       }
 
+      // Keep the long-lived token alive — but NEVER on the critical path.
+      // Meta expects a fast 200 and will retry, then disable the subscription,
+      // if this endpoint is slow. The refresh runs after the response is sent;
+      // this event proceeds with the current token, which is still valid for
+      // days (the window is TOKEN_REFRESH_THRESHOLD_DAYS wide, not minutes).
+      if (needsRefresh(user.token_expires_at)) {
+        const userForRefresh = { ...user }
+        after(async () => {
+          await getFreshAccessToken(supabase, userForRefresh)
+        })
+      }
+
       const { data: automations } = await supabase
         .from("automations")
         .select("*")
@@ -378,7 +391,12 @@ export async function POST(request: NextRequest) {
                   )
                   const pubJson = await pubRes.json()
                   if (pubJson.error) {
-                    console.error("[v0] 🔴 Public Reply Failed:", JSON.stringify(pubJson.error))
+                    await logInstagramApiError(
+                      supabase,
+                      { step: "public_reply", userId: user.id, username: user.username },
+                      pubJson.error,
+                      { comment_id: commentId },
+                    )
                     await logAutomationEvent(supabase, "comment_automation_error", user.id, {
                       ...eventData,
                       step: "public_reply",
@@ -454,7 +472,12 @@ export async function POST(request: NextRequest) {
                 )
                 const dmJson = await dmRes.json()
                 if (dmJson.error) {
-                  console.error("[v0] 🔴 Private DM Failed:", JSON.stringify(dmJson.error))
+                  await logInstagramApiError(
+                    supabase,
+                    { step: "private_dm", userId: user.id, username: user.username },
+                    dmJson.error,
+                    { comment_id: commentId },
+                  )
                   await logAutomationEvent(supabase, "comment_automation_error", user.id, {
                     ...eventData,
                     step: "private_dm",
@@ -601,12 +624,21 @@ export async function POST(request: NextRequest) {
                 }
               }
 
-              await fetch(
+              const storyRes = await fetch(
                 `https://graph.instagram.com/v24.0/me/messages?access_token=${encodeURIComponent(user.access_token)}`,
                 { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiBody) },
               )
-
-              console.log(`✅ Story automation sent: ${match.name}`)
+              const storyJson = await storyRes.json()
+              if (storyJson.error) {
+                await logInstagramApiError(
+                  supabase,
+                  { step: "story_reply", userId: user.id, username: user.username },
+                  storyJson.error,
+                  { sender_id: senderId, automation_id: match.id || null },
+                )
+              } else {
+                console.log(`✅ Story automation sent: ${match.name}`)
+              }
             } catch (err) {
               console.error('❌ Story automation error:', err)
             }
@@ -747,8 +779,14 @@ export async function POST(request: NextRequest) {
               { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(apiBody) },
             )
             const json = await res.json()
-            if (json.error) console.error("[v0] 🔴 Reply Failed:", json.error)
-            else {
+            if (json.error) {
+              await logInstagramApiError(
+                supabase,
+                { step: "dm_reply", userId: user.id, username: user.username },
+                json.error,
+                { sender_id: senderId, automation_id: match.id || null },
+              )
+            } else {
               console.log("[v0] 🟢 Reply Sent!")
               await logAutomationEvent(supabase, "dm_automation_sent", user.id, {
                 sender_id: senderId,

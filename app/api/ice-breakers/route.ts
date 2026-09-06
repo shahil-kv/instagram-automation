@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
+import { getFreshAccessToken, logInstagramApiError } from "@/lib/instagram-token"
 
 export async function GET(request: NextRequest) {
     try {
@@ -57,7 +58,11 @@ export async function POST(request: NextRequest) {
         if (insertError) throw insertError
 
         // 2. Sync to Instagram
-        const { data: user } = await supabase.from("users").select("access_token, page_id").eq("id", userId).single()
+        const { data: user } = await supabase
+            .from("users")
+            .select("id, username, access_token, token_expires_at, page_id")
+            .eq("id", userId)
+            .single()
 
         if (user && user.access_token && user.page_id) {
             // Construct IG Payload
@@ -81,7 +86,7 @@ export async function POST(request: NextRequest) {
             // We need to know which response to send. 
 
             const response = await fetch(
-                `https://graph.instagram.com/v21.0/me/messenger_profile?access_token=${user.access_token}`,
+                `https://graph.instagram.com/v21.0/me/messenger_profile?access_token=${encodeURIComponent(await getFreshAccessToken(supabase, user))}`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -93,7 +98,7 @@ export async function POST(request: NextRequest) {
             )
             const igResult = await response.json()
             if (igResult.error) {
-                console.error("IG Sync Error", igResult.error)
+                await logInstagramApiError(supabase, { step: "ice_breakers_sync", userId: user.id, username: user.username }, igResult.error)
                 return NextResponse.json({ success: true, warning: "Saved to DB but IG Sync failed", error: igResult.error }, { status: 200 })
             }
         }

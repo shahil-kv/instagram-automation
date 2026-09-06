@@ -3,6 +3,7 @@
 import { Sidebar } from "@/components/layout/sidebar"
 import { MobileNav } from "@/components/layout/mobile-nav"
 import { useInstagramSession } from "@/hooks/use-instagram-session"
+import { ConnectionAlert } from "@/components/dashboard/ConnectionAlert"
 import { Loader2 } from "lucide-react"
 
 export default function DashboardLayout({
@@ -10,7 +11,7 @@ export default function DashboardLayout({
 }: {
     children: React.ReactNode
 }) {
-    const { username, logout, isLoading } = useInstagramSession()
+    const { userId, username, logout, isLoading } = useInstagramSession()
 
     if (isLoading) {
         return (
@@ -38,6 +39,8 @@ export default function DashboardLayout({
                     <span className="font-bold text-lg tracking-tight text-white">Instagram Automation</span>
                     <MobileNav username={username || "User"} onLogout={logout} />
                 </header>
+
+                <ConnectionAlert userId={userId} />
 
                 <main className="flex-1 relative overflow-auto">
                     {children}

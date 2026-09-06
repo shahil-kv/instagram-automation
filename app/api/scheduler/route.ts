@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
 import { createReelsContainer, getContainerStatus, publishContainer } from "@/lib/instagram-publishing"
+import { getFreshAccessToken } from "@/lib/instagram-token"
 
 // Helper to wait
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms))
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
                 // 3. Get User Token
                 const { data: user } = await supabase
                     .from("users")
-                    .select("access_token")
+                    .select("id, username, access_token, token_expires_at")
                     .eq("id", config.user_id)
                     .single()
 
@@ -93,6 +94,9 @@ export async function GET(request: NextRequest) {
                     log.status = 'error'; log.reason = 'No token';
                     results.push(log); continue;
                 }
+
+                // Refresh the long-lived token if it is close to expiring.
+                const accessToken = await getFreshAccessToken(supabase, user)
 
                 // 4. Select Content (Rotator Logic)
                 let { data: clip } = await supabase
@@ -131,7 +135,7 @@ export async function GET(request: NextRequest) {
                 console.log(`[Scheduler] Posting Clip #${clip.sequence_index} for User ${config.user_id}`)
 
                 // A. Create Container
-                const containerId = await createReelsContainer(user.access_token, clip.video_url, clip.caption)
+                const containerId = await createReelsContainer(accessToken, clip.video_url, clip.caption)
 
                 // B. Wait for Processing (Simple Polling)
                 let status = 'IN_PROGRESS'
@@ -139,7 +143,7 @@ export async function GET(request: NextRequest) {
                 // Increase timeout to ~2 minutes (24 * 5s)
                 while (status === 'IN_PROGRESS' && attempts < 24) {
                     await delay(5000) // Wait 5s
-                    status = await getContainerStatus(user.access_token, containerId)
+                    status = await getContainerStatus(accessToken, containerId)
                     attempts++
                 }
 
@@ -148,7 +152,7 @@ export async function GET(request: NextRequest) {
                 }
 
                 // C. Publish
-                const mediaId = await publishContainer(user.access_token, containerId)
+                const mediaId = await publishContainer(accessToken, containerId)
 
                 // 6. Log Success
                 log.status = 'success'

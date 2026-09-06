@@ -1,20 +1,26 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
+import { normalizeAuthCode } from "@/lib/instagram-auth"
+import { exchangeForLongLivedToken, logInstagramApiError } from "@/lib/instagram-token"
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
-  const code = searchParams.get("code")
+  const rawCode = searchParams.get("code")
   const error = searchParams.get("error")
 
   if (error) {
+    console.error(
+      `[v0] 🔴 Instagram authorize denied: ${error} | reason=${searchParams.get("error_reason")} | ${searchParams.get("error_description")}`,
+    )
     const redirectUrl = new URL("/", request.url)
     redirectUrl.searchParams.set("error", error)
     return NextResponse.redirect(redirectUrl)
   }
 
-  if (code) {
+  if (rawCode) {
     const redirectUrl = new URL("/", request.url)
-    redirectUrl.searchParams.set("code", code)
+    // Instagram appends `#_` to the redirect — strip it before it reaches the exchange.
+    redirectUrl.searchParams.set("code", normalizeAuthCode(rawCode))
     return NextResponse.redirect(redirectUrl)
   }
 
@@ -22,9 +28,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const supabase = await getSupabaseServerClient()
+
   try {
     const body = await request.json()
-    const { code } = body
+    const code = body?.code ? normalizeAuthCode(String(body.code)) : ""
     if (!code) return NextResponse.json({ error: "No code" }, { status: 400 })
 
     // 1. Env Vars
@@ -33,10 +41,12 @@ export async function POST(request: NextRequest) {
     const redirectUri = process.env.NEXT_PUBLIC_INSTAGRAM_REDIRECT_URI
 
     if (!clientId || !clientSecret || !redirectUri) {
-      throw new Error("Missing Env Vars: Check INSTAGRAM_APP_ID")
+      throw new Error("Missing Env Vars: Check INSTAGRAM_APP_ID / INSTAGRAM_APP_SECRET / NEXT_PUBLIC_INSTAGRAM_REDIRECT_URI")
     }
 
-    // 2. Exchange Code for Short Token
+    // 2. Exchange Code for Short Token.
+    // redirect_uri must be byte-identical to the one used in the authorize URL —
+    // both read the same env var so they cannot drift.
     const tokenParams = new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
@@ -57,19 +67,36 @@ export async function POST(request: NextRequest) {
         // Harmless double-fire from React StrictMode or double clicks
         return NextResponse.json({ error: "Code already used" }, { status: 400 })
       }
-      console.error("[v0] 🔴 Token Error:", JSON.stringify(tokenData, null, 2))
-      return NextResponse.json({ error: tokenData.error_description || "Token failed" }, { status: 400 })
+      await logInstagramApiError(supabase, { step: "code_exchange" }, tokenData, { redirect_uri: redirectUri })
+      return NextResponse.json({ error: tokenData.error_description || tokenData.error_message || "Token failed" }, { status: 400 })
     }
 
     const shortToken = tokenData.access_token
     const loginUserId = tokenData.user_id.toString()
 
-    // 3. Exchange for Long Token (60 Days)
-    const longLivedUrl = `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${clientSecret}&access_token=${shortToken}`
-    const longRes = await fetch(longLivedUrl)
-    const longData = await longRes.json()
-    const accessToken = longData.access_token || shortToken
-    const expiresIn = longData.expires_in || 5184000
+    // 3. Exchange for Long Token (60 Days).
+    // This MUST succeed — storing the 1-hour short token with a 60-day expiry
+    // is what makes the connection die silently about an hour later.
+    let accessToken: string
+    let expiresIn: number
+    let tokenExpiresAt: string
+    try {
+      const longLived = await exchangeForLongLivedToken(shortToken, clientSecret)
+      accessToken = longLived.accessToken
+      expiresIn = longLived.expiresIn
+      tokenExpiresAt = longLived.expiresAt
+      console.log(`[v0] 🔑 Long-lived token acquired | expires ${tokenExpiresAt}`)
+    } catch (e: any) {
+      await logInstagramApiError(
+        supabase,
+        { step: "long_lived_exchange", userId: loginUserId },
+        e?.instagramError || { message: e?.message || String(e) },
+      )
+      return NextResponse.json(
+        { error: "Could not get a long-lived Instagram token. Please try connecting again." },
+        { status: 502 },
+      )
+    }
 
     // 4. Get Username + IG Professional Account ID (webhook-matching ID)
     // Per Meta docs: /me?fields=user_id returns the IG_ID that matches webhook entry.id
@@ -79,11 +106,14 @@ export async function POST(request: NextRequest) {
 
     try {
       const meRes = await fetch(
-        `https://graph.instagram.com/v24.0/me?fields=user_id,username&access_token=${accessToken}`
+        `https://graph.instagram.com/v24.0/me?fields=user_id,username&access_token=${encodeURIComponent(accessToken)}`,
       )
       const meData = await meRes.json()
       console.log("[v0] 📋 /me response:", JSON.stringify(meData))
 
+      if (meData.error) {
+        await logInstagramApiError(supabase, { step: "me_lookup", userId: loginUserId }, meData.error)
+      }
       if (meData.username) username = meData.username
       if (meData.user_id) {
         businessAccountId = meData.user_id.toString()
@@ -95,19 +125,19 @@ export async function POST(request: NextRequest) {
       console.error("[v0] /me request failed:", e)
     }
 
-    // 6. Save/Update User
-    const supabase = await getSupabaseServerClient()
-
+    // 5. Save/Update User — store the computed expiry, not just the token.
     const updates: any = {
       username,
       access_token: accessToken,
-      token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
+      token_expires_at: tokenExpiresAt,
       updated_at: new Date().toISOString(),
       business_account_id: businessAccountId,
       page_id: businessAccountId, // Always keep in sync
     }
 
-    console.log(`[v0] 💾 Saving user: ${username} | id=${loginUserId} | biz_id=${businessAccountId}`)
+    console.log(
+      `[v0] 💾 Saving user: ${username} | id=${loginUserId} | biz_id=${businessAccountId} | token_expires_at=${tokenExpiresAt}`,
+    )
 
     const { error: upsertError } = await supabase
       .from("users")
@@ -125,6 +155,7 @@ export async function POST(request: NextRequest) {
     return response
 
   } catch (error: any) {
+    console.error("[v0] 🔴 Instagram callback failed:", error?.message || error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
