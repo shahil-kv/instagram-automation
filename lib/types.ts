@@ -36,6 +36,8 @@ export interface Automation {
   trigger_type: 'keyword' | 'postback' | 'reply_all'  // Simplified types
   response_content: {
     check_follow?: boolean
+    /** Optional custom copy shown on the follow-gate card. */
+    gate_message?: string
     message?: string
     card?: {
       title: string

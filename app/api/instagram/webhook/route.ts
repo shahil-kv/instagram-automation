@@ -3,6 +3,13 @@
 import { after, type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
 import { getFreshAccessToken, logInstagramApiError, needsRefresh } from "@/lib/instagram-token"
+import {
+  FOLLOW_CHECK_PREFIX,
+  buildFollowGateCard,
+  buildUnlockPrompt,
+  checkFollowStatus,
+} from "@/lib/instagram-profile"
+import { buildResponseMessage } from "@/lib/instagram-message"
 
 const WEBHOOK_VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || "your_verify_token"
 const COMMENT_COOLDOWN_MINUTES = Number(process.env.INSTAGRAM_COMMENT_COOLDOWN_MINUTES || 10)
@@ -427,32 +434,30 @@ export async function POST(request: NextRequest) {
 
               // Private Reply (DM)
               const apiBody: any = { recipient: { comment_id: commentId } }
+              let gateOutcome: string | null = null
 
-              if (content.message) {
-                // Plain Text
-                apiBody.message = { text: content.message }
-              } else if (content.card) {
-                // Rich Card / Generic Template
-                const card = content.card
-                const apiButtons = card.buttons.map((b: any) => ({
-                  type: b.type,
-                  title: b.title,
-                  url: b.url || undefined,
-                  payload: b.payload || undefined,
-                }))
-                const element: any = { title: card.title, buttons: apiButtons }
-                if (card.subtitle) element.subtitle = card.subtitle
-                if (card.image_url && card.image_url.startsWith("http")) element.image_url = card.image_url
+              if (content.check_follow === true) {
+                // Follow Gate. A commenter who has never messaged us cannot be
+                // looked up (error 230), so the honest flow is: ask them to tap a
+                // button, which grants consent, then verify for real on the postback.
+                const followCheck = await checkFollowStatus(senderId, user.access_token)
+                gateOutcome = followCheck.status
 
-                apiBody.message = {
-                  attachment: {
-                    type: "template",
-                    payload: {
-                      template_type: "generic",
-                      elements: [element],
-                    },
-                  },
+                if (followCheck.status === "follower") {
+                  // Already consented AND following — deliver immediately, no extra tap.
+                  apiBody.message = buildResponseMessage(content)
+                } else if (followCheck.status === "not_follower") {
+                  apiBody.message = buildFollowGateCard(match.id, user.username, content.gate_message)
+                } else {
+                  // no_consent (the common case) or a lookup error: we cannot tell
+                  // yet, so prompt for the tap rather than guessing either way.
+                  apiBody.message = buildUnlockPrompt(match.id, content.gate_message)
+                  if (followCheck.status === "error") {
+                    console.warn("[v0] ⚠️ Follow lookup failed, falling back to unlock prompt:", JSON.stringify(followCheck.error))
+                  }
                 }
+              } else {
+                apiBody.message = buildResponseMessage(content)
               }
 
               if (!apiBody.message) {
@@ -464,6 +469,7 @@ export async function POST(request: NextRequest) {
                 continue
               }
 
+              if (gateOutcome) console.log(`[v0] 🔐 Follow gate → ${gateOutcome}`)
               console.log("[v0] 📤 DM Body:", JSON.stringify(apiBody))
               try {
                 const dmRes = await fetch(
@@ -686,9 +692,61 @@ export async function POST(request: NextRequest) {
           let match = null
           const dmAutomations = automations.filter((a: any) => a.trigger_source === "dm")
           if (triggerType === "postback") {
-            if (triggerValue.startsWith("UNLOCK_CONTENT_")) {
-              const ruleId = triggerValue.replace("UNLOCK_CONTENT_", "")
-              match = automations.find((a) => a.id === ruleId)
+            // Both prefixes land here. UNLOCK_CONTENT_ is the legacy honour-system
+            // payload still sitting in older cards; it now runs the same real check.
+            if (triggerValue.startsWith(FOLLOW_CHECK_PREFIX) || triggerValue.startsWith("UNLOCK_CONTENT_")) {
+              const ruleId = triggerValue
+                .replace(FOLLOW_CHECK_PREFIX, "")
+                .replace("UNLOCK_CONTENT_", "")
+              const rule = automations.find((a) => a.id === ruleId)
+
+              if (rule) {
+                const gateContent =
+                  typeof rule.response_content === "string"
+                    ? JSON.parse(rule.response_content)
+                    : rule.response_content
+
+                // Tapping the button granted consent, so the lookup should work now.
+                const followCheck = await checkFollowStatus(senderId, user.access_token)
+                console.log(`[v0] 🔐 Follow re-check for rule ${ruleId} → ${followCheck.status}`)
+
+                await logAutomationEvent(supabase, "follow_gate_check", user.id, {
+                  sender_id: senderId,
+                  automation_id: ruleId,
+                  result: followCheck.status,
+                  follower_count: followCheck.followerCount ?? null,
+                })
+
+                if (followCheck.status === "follower" || gateContent?.check_follow !== true) {
+                  // Verified follower, or the gate was switched off since the card was sent.
+                  match = rule
+                } else {
+                  // Not following, or still unverifiable — send the gate card and stop.
+                  const gateMessage =
+                    followCheck.status === "not_follower"
+                      ? buildFollowGateCard(ruleId, user.username, gateContent?.gate_message)
+                      : buildUnlockPrompt(ruleId, gateContent?.gate_message)
+
+                  const gateRes = await fetch(
+                    `https://graph.instagram.com/v24.0/me/messages?access_token=${encodeURIComponent(user.access_token)}`,
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ recipient: { id: senderId }, message: gateMessage }),
+                    },
+                  )
+                  const gateJson = await gateRes.json()
+                  if (gateJson.error) {
+                    await logInstagramApiError(
+                      supabase,
+                      { step: "follow_gate_card", userId: user.id, username: user.username },
+                      gateJson.error,
+                      { sender_id: senderId, automation_id: ruleId },
+                    )
+                  }
+                  continue
+                }
+              }
             } else if (triggerValue.startsWith("ICE_BREAKER_")) {
               // Handle Ice Breaker
               const iceBreakerId = triggerValue.replace("ICE_BREAKER_", "")
@@ -748,27 +806,31 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // Follow Gate Logic
-          const isUnlockEvent = triggerType === "postback" && triggerValue.startsWith("UNLOCK_CONTENT_")
-          if (content.check_follow === true && !isUnlockEvent) {
-            replyTextLog = "[Locked Content Gate]"
-            apiBody.message = {
-              attachment: {
-                type: "template",
-                payload: {
-                  template_type: "generic",
-                  elements: [
-                    {
-                      title: "🔒 Content Locked",
-                      subtitle: `Please follow @${user.username} to see this!`,
-                      buttons: [
-                        { type: "web_url", url: `https://instagram.com/${user.username}`, title: "Follow Us" },
-                        { type: "postback", title: "I Followed! ✅", payload: `UNLOCK_CONTENT_${match.id}` },
-                      ],
-                    },
-                  ],
-                },
-              },
+          // Follow Gate Logic.
+          // A postback that got here already passed the real check above, so it
+          // must not be re-gated — that would loop the user forever.
+          const isGateUnlockEvent =
+            triggerType === "postback" &&
+            (triggerValue.startsWith(FOLLOW_CHECK_PREFIX) || triggerValue.startsWith("UNLOCK_CONTENT_"))
+
+          if (content.check_follow === true && !isGateUnlockEvent) {
+            // This person DM'd us, so consent exists and the lookup should resolve.
+            const followCheck = await checkFollowStatus(senderId, user.access_token)
+            console.log(`[v0] 🔐 Follow gate (DM) → ${followCheck.status}`)
+
+            await logAutomationEvent(supabase, "follow_gate_check", user.id, {
+              sender_id: senderId,
+              automation_id: match.id || null,
+              result: followCheck.status,
+              source: "dm",
+            })
+
+            if (followCheck.status !== "follower") {
+              replyTextLog = "[Follow Gate]"
+              apiBody.message =
+                followCheck.status === "not_follower"
+                  ? buildFollowGateCard(match.id, user.username, content.gate_message)
+                  : buildUnlockPrompt(match.id, content.gate_message)
             }
           }
 

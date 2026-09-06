@@ -45,6 +45,7 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
   // Step 3: Settings
   const [name, setName] = useState("")
   const [checkFollow, setCheckFollow] = useState(false)
+  const [gateMessage, setGateMessage] = useState("")
 
   // Auto-generate name suggestion
   useEffect(() => {
@@ -120,6 +121,7 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
     }
 
     const content: any = { check_follow: checkFollow }
+    if (checkFollow && gateMessage.trim()) content.gate_message = gateMessage.trim()
     if (triggerSource === "comment") {
       content.public_reply_enabled = publicReplyEnabled
       content.public_replies = publicReplies.map((reply) => reply.trim()).filter(Boolean)
@@ -583,7 +585,11 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
         </div>
         <div className="text-left flex-1">
           <p className={`text-sm font-bold ${checkFollow ? 'text-amber-400' : 'text-white'}`}>Follow Gate</p>
-          <p className="text-[11px] text-neutral-500">Only reply to your followers</p>
+          <p className="text-[11px] text-neutral-500">
+            {checkFollow
+              ? 'Verified via Instagram — non-followers get a "Follow to unlock" card'
+              : 'Only reply to your followers'}
+          </p>
         </div>
         <div className={`w-5 h-5 rounded-full border-2 transition-all ${
           checkFollow ? 'border-amber-500 bg-amber-500' : 'border-white/20'
@@ -591,6 +597,25 @@ export function CreateRuleForm({ userId, triggerSource, onSuccess }: CreateRuleF
           {checkFollow && <Check className="w-3 h-3 text-black m-auto mt-0.5" />}
         </div>
       </button>
+
+      {checkFollow && (
+        <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-200">
+          <Label className="text-[11px] text-neutral-400 font-bold uppercase tracking-wider ml-1">
+            Follow Message (Optional)
+          </Label>
+          <Textarea
+            value={gateMessage}
+            onChange={(e) => setGateMessage(e.target.value)}
+            placeholder="🔒 One quick thing — follow me first, it really helps me keep making videos like this"
+            rows={3}
+            className="bg-white/[0.02] border-white/10 text-sm resize-none"
+            maxLength={640}
+          />
+          <p className="text-[10px] text-neutral-600 ml-1">
+            Shown to non-followers, above the Follow and “I followed ✅” buttons. {gateMessage.length}/640
+          </p>
+        </div>
+      )}
 
       {/* Summary card */}
       <div className="p-4 rounded-xl bg-white/[0.03] border border-white/5 space-y-3">
