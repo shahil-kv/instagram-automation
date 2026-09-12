@@ -43,7 +43,6 @@ Use it to build:
 - Reels-specific comment automations
 - Reply-all automations for selected posts or Reels
 - Instagram Ice Breakers
-- Reels content pool and scheduler
 - Self-hosted creator automation workflows
 - Developer-owned Instagram webhook automation
 
@@ -63,7 +62,7 @@ Paid Instagram automation tools are useful, but they are usually closed-source a
 | Custom webhook logic | Limited | Yes |
 | Comment-to-DM workflows | Yes | Yes |
 | Public comment reply before DM | Yes | Yes |
-| Reels publishing workflows | Depends | Yes |
+| Cross-post to Instagram + YouTube | Depends | Yes |
 | Supabase/Postgres backend | No | Yes |
 | Vercel deployable | Depends | Yes |
 | Full source code access | No | Yes |
@@ -128,26 +127,29 @@ This supports the common flow: **comment on Reel -> public reply -> DM with link
 - Sync Ice Breakers to the Instagram Messenger profile
 - Handle Ice Breaker postback responses in the webhook
 
-### Reels Publishing and Scheduling
+### Post to Instagram and YouTube
 
-- Content pool for Reels
-- Supabase Storage-backed media uploads
-- Import Instagram media into the pool
-- Scheduler configuration API
-- Create Instagram Reels containers
-- Poll publishing status
-- Publish ready containers
-- Track published Reel history
-- Direct publish hook protected by an API secret
+The **Post** section in the sidebar takes one video and sends it to both platforms in a single pass. No scheduling, no content pool — you pick a file, write the text once, tick the platforms, and hit post.
+
+- One upload straight to Supabase Storage; both publishers read it from there
+- Instagram Reel via the official Content Publishing API (container -> poll -> publish)
+- YouTube via OAuth 2.0 and a resumable, restartable chunked upload
+- Shared title/caption, per-platform YouTube privacy
+- Per-platform status, error text, and a link to the live post
+- Recent post history with what succeeded where
+
+**Before YouTube works you need two things from Google:**
+
+1. A Google Cloud project with **YouTube Data API v3** enabled and a Web OAuth client, with `https://your-domain.com/api/youtube/callback` listed verbatim as an authorized redirect URI.
+2. A **YouTube API compliance audit**. Until that passes, YouTube forces every upload from your project to `private` no matter what privacy you select, and you get 100 uploads per day. The audit lifts both.
+
+Instagram side: a Business or Creator account, `instagram_business_content_publish` approved through Meta App Review, and a cap of 25 API posts per rolling 24 hours.
 
 ### Dashboard
 
 - Automation management
 - Comment, DM, and story automation tabs
-- Reels/post picker for targeted automations
 - Public reply controls for comment automations
-- Content pool management
-- Scheduler settings
 - Dashboard stats from webhook events
 
 ---
@@ -191,12 +193,18 @@ app/api/instagram/media          Instagram media cache/import support
 app/api/automations              Automation CRUD
 app/api/ice-breakers             Ice Breaker management + sync
 app/api/dashboard/stats          Dashboard metrics from webhook events
-app/api/hooks                    Reels publishing/upload hooks
-app/api/scheduler                Reels/content scheduling APIs
-components/dashboard             Dashboard, automations, content pool, scheduler
+app/api/post                     Manual cross-post create/history + tick driver
+app/api/youtube                  YouTube OAuth connect/callback/status
+components/dashboard             Dashboard, automations, post composer
 lib/supabase-server.ts           Supabase server client
 lib/instagram-publishing.ts      Reels container/publish helpers
+lib/publishers                   Per-platform publish step machines
+lib/youtube-auth.ts              YouTube OAuth + token refresh
+lib/session.ts                   Signed session cookie, server-side user lookup
+components/dashboard/PostComposer.tsx  Post section composer
 scripts/setup-supabase.sql       One-pass Supabase schema setup
+scripts/09-social-posting.sql    Post section tables (existing installs)
+scripts/10-lock-down-rls.sql     Enables RLS, makes storage read-only
 ```
 
 ---
@@ -223,6 +231,8 @@ npm install
 - Copy the anon key.
 - Copy the service role key.
 - Run the SQL setup script from `scripts/setup-supabase.sql` in the Supabase SQL Editor.
+- Already had this running before the Post section existed? Run `scripts/09-social-posting.sql` too.
+- **Run `scripts/10-lock-down-rls.sql`.** Without it the anon key in your client bundle can read every table, including `users.access_token`.
 
 ### 4. Create a Meta / Instagram app
 
@@ -293,7 +303,13 @@ http://localhost:3000
 | `INSTAGRAM_COMMENT_AUTOMATION_DAILY_LIMIT` | Optional | Daily safety cap for comment automations |
 | `INSTAGRAM_WEBHOOK_DEBUG` | Optional | Enables raw webhook logging when set to `true` |
 | `GATEWAY_SECRET` | Optional | Reserved for AI/proxy integrations |
-| `API_SECRET_KEY` | Optional | Secret for internal Reels publishing/upload hooks |
+| `API_SECRET_KEY` | Optional | Fallback secret for the token-refresh cron when `CRON_SECRET` is unset |
+| `SESSION_SECRET` | Recommended | Signs the session cookie. Falls back to `INSTAGRAM_APP_SECRET` |
+| `GOOGLE_CLIENT_ID` | For YouTube | Google OAuth web client ID |
+| `GOOGLE_CLIENT_SECRET` | For YouTube | Google OAuth client secret |
+| `YOUTUBE_REDIRECT_URI` | For YouTube | Must match the authorized redirect URI exactly |
+| `YOUTUBE_DEFAULT_PRIVACY` | Optional | `private` (default), `unlisted`, or `public` |
+| `YOUTUBE_CATEGORY_ID` | Optional | YouTube category id, defaults to `22` (People & Blogs) |
 
 **Security note:** never expose `SUPABASE_SERVICE_ROLE_KEY`, `INSTAGRAM_APP_SECRET`, access tokens, or `API_SECRET_KEY` in client-side code.
 
@@ -336,8 +352,7 @@ Before going live, test these flows:
 - Create a reply-all automation for one selected Reel
 - Add Ice Breakers and verify they sync
 - Create a story mention, reply, or reaction automation
-- Upload a Reel to the content pool
-- Test a Reels publishing hook if using the publisher
+- Post a video to Instagram and YouTube from the Post section
 - Check dashboard stats and webhook event logs
 
 ---
@@ -357,7 +372,6 @@ Instagram Automation can be used as:
 - Agency-owned Instagram automation stack
 - Supabase Instagram API starter
 - Vercel-deployable Instagram webhook app
-- Reels scheduling and publishing workflow
 
 ---
 
@@ -403,7 +417,7 @@ Good first issues:
 - Add tests for API routes
 - Improve webhook logging
 - Add provider-agnostic AI configuration
-- Improve Reels scheduler reliability
+- Improve upload reliability for large videos
 
 ---
 

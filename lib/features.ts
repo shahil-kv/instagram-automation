@@ -5,7 +5,8 @@
  * left intact, only the navigation and access are gated.
  */
 export const FEATURES = {
-    publisher: false,
+    /** Manual cross-posting to Instagram + YouTube. No scheduling involved. */
+    post: true,
     iceBreakers: false,
     analytics: false,
     /** Story automations — Instagram serves stories from a separate edge we don't use. */
@@ -20,7 +21,7 @@ export function isEnabled(feature: FeatureKey) {
 
 /** Routes that are switched off, used to bounce direct/bookmarked visits. */
 export const DISABLED_ROUTES: string[] = [
-    ...(FEATURES.publisher ? [] : ["/dashboard/publisher"]),
+    ...(FEATURES.post ? [] : ["/dashboard/post"]),
     ...(FEATURES.iceBreakers ? [] : ["/dashboard/ice-breakers"]),
     ...(FEATURES.analytics ? [] : ["/dashboard/analytics"]),
 ]

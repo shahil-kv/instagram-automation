@@ -1,5 +1,3 @@
-import { getSupabaseServerClient } from "@/lib/supabase-server"
-
 interface ContainerResponse {
     id: string
 }

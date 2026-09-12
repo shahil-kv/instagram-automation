@@ -1,3 +1,14 @@
+-- ############################################################
+-- DEPRECATED — DO NOT RUN.
+--
+-- The policies below grant the public role INSERT/UPDATE/DELETE on a storage
+-- bucket, which lets any visitor (the anon key is in the client bundle) upload
+-- to and delete from your storage. Superseded by scripts/setup-supabase.sql
+-- and scripts/10-lock-down-rls.sql, which keep public access read-only.
+--
+-- Kept only as migration history.
+-- ############################################################
+
 -- Force create bucket if not exists
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types) 
 VALUES ('media', 'media', true, 52428800, ARRAY['video/mp4', 'image/jpeg', 'image/png'])

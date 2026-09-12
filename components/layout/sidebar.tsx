@@ -3,7 +3,7 @@
 import type React from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Instagram, LayoutDashboard, Zap, LogOut, Settings, BarChart3, Snowflake, Clapperboard } from "lucide-react"
+import { Instagram, LayoutDashboard, Zap, LogOut, Settings, BarChart3, Snowflake, Send } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { FEATURES } from "@/lib/features"
@@ -48,12 +48,12 @@ export function Sidebar({ className, username = "Demo User", onLogout, onNavigat
           active={isActive("/dashboard/automations")}
           onClick={onNavigate}
         />
-        {FEATURES.publisher && (
+        {FEATURES.post && (
           <NavItem
-            href="/dashboard/publisher"
-            icon={<Clapperboard className="w-4 h-4" />}
-            label="Publisher"
-            active={isActive("/dashboard/publisher")}
+            href="/dashboard/post"
+            icon={<Send className="w-4 h-4" />}
+            label="Post"
+            active={isActive("/dashboard/post")}
             onClick={onNavigate}
           />
         )}

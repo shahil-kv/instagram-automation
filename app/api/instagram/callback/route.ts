@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
 import { normalizeAuthCode } from "@/lib/instagram-auth"
 import { exchangeForLongLivedToken, logInstagramApiError, logInstagramTokenHealthy } from "@/lib/instagram-token"
+import { SESSION_COOKIE, serializeSession, sessionCookieOptions } from "@/lib/session"
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -151,12 +152,13 @@ export async function POST(request: NextRequest) {
     })
 
     const response = NextResponse.json({ success: true, username, userId: loginUserId })
-    response.cookies.set("insta_session", JSON.stringify({ username, userId: loginUserId }), {
-      path: "/",
-      maxAge: expiresIn,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    })
+    // Signed + httpOnly: publish routes derive the user from this cookie, so it
+    // must not be readable or forgeable from the browser.
+    response.cookies.set(
+      SESSION_COOKIE,
+      serializeSession({ username, userId: String(loginUserId) }),
+      sessionCookieOptions(expiresIn),
+    )
     return response
 
   } catch (error: any) {
