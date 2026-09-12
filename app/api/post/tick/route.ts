@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
 import { getSession } from "@/lib/session"
+import { deleteStagedVideo } from "@/lib/storage"
 import { tickInstagram } from "@/lib/publishers/instagram"
 import { tickYouTube } from "@/lib/publishers/youtube"
 import type { PostJob, PostTarget, TickResult } from "@/lib/publishers/types"
@@ -91,6 +92,16 @@ export async function POST(request: NextRequest) {
             .order("platform", { ascending: true })
 
         const rows = (fresh ?? []) as PostTarget[]
+        const done = rows.every((t) => t.status === "published" || t.status === "failed")
+
+        // Storage is a staging area, not a library. Once every platform has
+        // published, each holds its own copy and the staged file is just
+        // burning quota. A partial failure keeps the file so a retry can reuse
+        // it. Best-effort: cleanup must never fail a successful post.
+        let cleanedUp = false
+        if (done && rows.length > 0 && rows.every((t) => t.status === "published")) {
+            cleanedUp = await deleteStagedVideo(supabase, job.video_url)
+        }
 
         return NextResponse.json({
             jobId,
@@ -98,7 +109,8 @@ export async function POST(request: NextRequest) {
             notes,
             progress,
             stages,
-            done: rows.every((t) => t.status === "published" || t.status === "failed"),
+            done,
+            cleanedUp,
         })
     } catch (error: any) {
         console.error("[Post] Tick failed:", error)

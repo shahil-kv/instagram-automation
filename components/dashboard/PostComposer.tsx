@@ -78,6 +78,10 @@ const STEPS: Record<Platform, { stage: string; label: string }[]> = {
     ],
 }
 
+function formatMb(bytes: number) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 function formatDuration(seconds: number) {
     const whole = Math.round(seconds)
     const mins = Math.floor(whole / 60)
@@ -144,9 +148,25 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
     const [notes, setNotes] = useState<Record<string, string>>({})
     const [platformProgress, setPlatformProgress] = useState<Record<string, number>>({})
     const [platformStage, setPlatformStage] = useState<Record<string, string>>({})
+    const [maxBytes, setMaxBytes] = useState<number | null>(null)
     const inputRef = useRef<HTMLInputElement>(null)
 
     const busy = phase === "uploading" || phase === "publishing"
+
+    // The storage ceiling depends on the Supabase plan, so read it rather than
+    // hardcode it — and read it before a file is chosen, not after a failed upload.
+    useEffect(() => {
+        let cancelled = false
+        fetch("/api/post/upload-url")
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+                if (!cancelled && data?.maxBytes) setMaxBytes(data.maxBytes)
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
+        }
+    }, [])
 
     // Object URLs leak until revoked, so tie one to the selected file's lifetime.
     useEffect(() => {
@@ -165,6 +185,8 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
     // the publishers use, so the preview cannot drift from what gets posted.
     const igCaption = buildInstagramCaption({ title, description })
     const ytFields = buildYouTubeFields({ title, description })
+
+    const oversize = maxBytes !== null && file !== null && file.size > maxBytes
 
     const reelWarning = !meta
         ? null
@@ -222,6 +244,11 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
 
     const submit = async () => {
         if (!file) return toast.error("Choose a video first")
+        if (oversize && maxBytes !== null) {
+            return toast.error(
+                `This video is ${formatMb(file.size)} but storage accepts at most ${formatMb(maxBytes)}. Compress it first.`,
+            )
+        }
         if (platforms.length === 0) return toast.error("Pick at least one platform")
         if (platforms.includes("youtube") && !youtube?.connected) {
             return toast.error("Connect a YouTube channel first")
@@ -248,7 +275,7 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
             const signRes = await fetch("/api/post/upload-url", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ fileName: file.name }),
+                body: JSON.stringify({ fileName: file.name, fileSize: file.size }),
             })
 
             const signed = await signRes.json()
@@ -356,6 +383,21 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
                                 )}
                             </div>
 
+                            {oversize && maxBytes !== null && (
+                                <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 space-y-1">
+                                    <p className="flex gap-2 text-xs font-medium text-red-400">
+                                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                        Too large for storage — {formatMb(file.size)} against a{" "}
+                                        {formatMb(maxBytes)} limit.
+                                    </p>
+                                    <p className="pl-5 text-xs text-neutral-400">
+                                        Compress it below {formatMb(maxBytes)}, or raise the cap by
+                                        upgrading the Supabase plan. Instagram needs the file at a public
+                                        URL, so it has to be staged somewhere either way.
+                                    </p>
+                                </div>
+                            )}
+
                             {reelWarning && platforms.includes("instagram") && (
                                 <p className="flex gap-2 text-xs text-amber-400">
                                     <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -375,7 +417,8 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
                             <Upload className="w-6 h-6 text-neutral-500" />
                             <p className="text-sm text-neutral-400">Choose an MP4 or MOV</p>
                             <p className="text-xs text-neutral-600">
-                                Instagram Reels: 3s–15min, up to 1 GB
+                                3s–15min
+                                {maxBytes !== null && ` · up to ${formatMb(maxBytes)}`}
                             </p>
                         </label>
                     )}
@@ -565,7 +608,7 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
 
                 {/* Actions */}
                 <div className="flex gap-2">
-                    <Button onClick={submit} disabled={busy || !file} className="flex-1">
+                    <Button onClick={submit} disabled={busy || !file || oversize} className="flex-1">
                         {busy ? (
                             <>
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />

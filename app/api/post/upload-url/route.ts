@@ -1,12 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getSupabaseServerClient } from "@/lib/supabase-server"
 import { getSession } from "@/lib/session"
-
-const BUCKET = "reels"
+import { getUploadLimitBytes, MEDIA_BUCKET } from "@/lib/storage"
 
 /**
  * Hand the browser a one-shot signed upload URL.
- * POST /api/post/upload-url  Body: { fileName }
+ * POST /api/post/upload-url  Body: { fileName, fileSize? }
+ * GET  /api/post/upload-url  ->  { maxBytes }  (so the UI can warn up front)
  *
  * The browser PUTs the file straight to Storage so the bytes never pass
  * through a function, and an XHR PUT reports real upload progress (the
@@ -22,7 +22,23 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Not signed in" }, { status: 401 })
         }
 
-        const { fileName } = await request.json()
+        const { fileName, fileSize } = await request.json()
+        const supabase = await getSupabaseServerClient()
+        const maxBytes = await getUploadLimitBytes(supabase)
+
+        // Reject before a single byte moves. Storage returns EntityTooLarge only
+        // after receiving the whole file, which wastes the entire upload.
+        if (typeof fileSize === "number" && fileSize > maxBytes) {
+            const asMb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1)
+            return NextResponse.json(
+                {
+                    error: `This video is ${asMb(fileSize)} MB but storage accepts at most ${asMb(maxBytes)} MB. Compress it below ${asMb(maxBytes)} MB, or raise the limit by upgrading the Supabase plan.`,
+                    maxBytes,
+                    fileSize,
+                },
+                { status: 413 },
+            )
+        }
 
         // Keep only a safe extension from whatever the browser sent.
         const extension = String(fileName || "")
@@ -33,9 +49,10 @@ export async function POST(request: NextRequest) {
         const safeExtension = extension && extension.length <= 5 ? extension : "mp4"
 
         const path = `${session.userId}/${Date.now()}.${safeExtension}`
-        const supabase = await getSupabaseServerClient()
 
-        const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(path)
+        const { data, error } = await supabase.storage
+            .from(MEDIA_BUCKET)
+            .createSignedUploadUrl(path)
 
         if (error || !data?.signedUrl) {
             throw new Error(error?.message || "Could not sign the upload URL")
@@ -43,11 +60,26 @@ export async function POST(request: NextRequest) {
 
         const {
             data: { publicUrl },
-        } = supabase.storage.from(BUCKET).getPublicUrl(path)
+        } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path)
 
-        return NextResponse.json({ uploadUrl: data.signedUrl, publicUrl, path })
+        return NextResponse.json({ uploadUrl: data.signedUrl, publicUrl, path, maxBytes })
     } catch (error: any) {
         console.error("[Post] Signing the upload URL failed:", error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+}
+
+/** Lets the composer show the real ceiling before a file is chosen. */
+export async function GET() {
+    try {
+        const session = await getSession()
+        if (!session) {
+            return NextResponse.json({ error: "Not signed in" }, { status: 401 })
+        }
+
+        const supabase = await getSupabaseServerClient()
+        return NextResponse.json({ maxBytes: await getUploadLimitBytes(supabase) })
+    } catch (error: any) {
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
 }
