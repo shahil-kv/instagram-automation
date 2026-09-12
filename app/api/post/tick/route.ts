@@ -52,6 +52,7 @@ export async function POST(request: NextRequest) {
 
         const notes: Record<string, string> = {}
         const progress: Record<string, number> = {}
+        const stages: Record<string, string> = {}
 
         for (const target of (targets ?? []) as PostTarget[]) {
             if (target.status === "published" || target.status === "failed") continue
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
 
                 if (result.note) notes[target.platform] = result.note
                 if (result.progress !== undefined) progress[target.platform] = result.progress
+                if (result.stage) stages[target.platform] = result.stage
                 await persist(supabase, target, result)
             } catch (error: any) {
                 console.error(`[Post] ${target.platform} tick failed:`, error)
@@ -95,6 +97,7 @@ export async function POST(request: NextRequest) {
             targets: rows,
             notes,
             progress,
+            stages,
             done: rows.every((t) => t.status === "published" || t.status === "failed"),
         })
     } catch (error: any) {

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { createReelsContainer, getContainerStatus, publishContainer } from "@/lib/instagram-publishing"
 import { getFreshAccessToken } from "@/lib/instagram-token"
+import { buildInstagramCaption } from "./captions"
 import type { PostJob, PostTarget, TickResult } from "./types"
 
 /**
@@ -30,28 +31,36 @@ export async function tickInstagram(
     const accessToken = await getFreshAccessToken(supabase, user)
 
     if (!target.external_ref) {
+        // Instagram fetches the video from our public URL itself, so this hands
+        // over a link rather than bytes — which is why there is no upload % here.
         const containerId = await createReelsContainer(
             accessToken,
             job.video_url,
-            job.caption || "",
+            buildInstagramCaption({ title: job.title, description: job.caption }),
             job.thumbnail_url || undefined,
         )
         return {
             status: "processing",
             external_ref: containerId,
-            note: "Instagram is processing the video",
+            stage: "ig_transcoding",
+            note: "Instagram is fetching and transcoding the video",
         }
     }
 
     const containerStatus = await getContainerStatus(accessToken, target.external_ref)
 
     if (containerStatus === "IN_PROGRESS") {
-        return { status: "processing", note: "Instagram is processing the video" }
+        return {
+            status: "processing",
+            stage: "ig_transcoding",
+            note: "Instagram is transcoding the video",
+        }
     }
 
     if (containerStatus !== "FINISHED") {
         return {
             status: "failed",
+            stage: "ig_transcoding",
             error_message: `Instagram rejected the video (status: ${containerStatus})`,
         }
     }
@@ -60,6 +69,7 @@ export async function tickInstagram(
 
     return {
         status: "published",
+        stage: "done",
         external_id: mediaId,
         permalink: await fetchPermalink(accessToken, mediaId),
     }

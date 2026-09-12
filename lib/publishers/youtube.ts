@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { getFreshYouTubeToken, getYouTubeAccount } from "@/lib/youtube-auth"
+import { buildYouTubeFields } from "./captions"
 import type { PostJob, PostTarget, TickResult } from "./types"
 
 /** Google requires resumable chunks to be a multiple of 256 KB. */
@@ -69,6 +70,7 @@ export async function tickYouTube(
             return {
                 status: "processing",
                 external_ref: uploadUrl,
+                stage: "yt_uploading",
                 note: `Uploading to YouTube — ${percent(offset, source.size)} sent`,
                 progress: ratio(offset, source.size),
             }
@@ -101,6 +103,7 @@ export async function tickYouTube(
         return {
             status: "failed",
             external_ref: uploadUrl,
+            stage: "yt_uploading",
             error_message: `YouTube upload failed (${res.status}): ${body.slice(0, 300)}`,
         }
     }
@@ -112,6 +115,7 @@ export async function tickYouTube(
     return {
         status: "processing",
         external_ref: uploadUrl,
+        stage: "yt_processing",
         note: "Waiting for YouTube to finish processing",
         progress: 100,
     }
@@ -126,6 +130,7 @@ function defaultPrivacy() {
 function publishedResult(videoId: string | null, privacy: string): TickResult {
     return {
         status: "published",
+        stage: "done",
         external_id: videoId,
         permalink: videoId ? `https://www.youtube.com/watch?v=${videoId}` : null,
         privacy,
@@ -174,10 +179,16 @@ async function openSession(
     source: ProbedSource,
     privacy: string,
 ): Promise<string> {
+    // Unlike Instagram, these stay separate — a real title and a real description.
+    const { title, description } = buildYouTubeFields({
+        title: job.title,
+        description: job.caption,
+    })
+
     const metadata = {
         snippet: {
-            title: (job.title || job.caption || "Untitled").slice(0, 100),
-            description: job.caption || "",
+            title,
+            description,
             categoryId: process.env.YOUTUBE_CATEGORY_ID || DEFAULT_CATEGORY_ID,
         },
         status: {

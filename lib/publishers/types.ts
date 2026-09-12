@@ -47,4 +47,19 @@ export type TickResult = {
      * undefined there and the UI shows an indeterminate state.
      */
     progress?: number
+    /**
+     * Which named step the target is on, so the UI can show a real checklist
+     * instead of one undifferentiated spinner.
+     */
+    stage?: Stage
 }
+
+/** Ordered publish steps, per platform. */
+export type Stage =
+    | "ig_container"
+    | "ig_transcoding"
+    | "ig_publishing"
+    | "yt_session"
+    | "yt_uploading"
+    | "yt_processing"
+    | "done"
