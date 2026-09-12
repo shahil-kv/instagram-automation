@@ -115,9 +115,9 @@ export default function AutomationsPage() {
         <div className="min-h-screen bg-black p-4 md:p-8">
             <div className="max-w-3xl mx-auto space-y-6">
                 {/* Header */}
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                        <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
                             <Zap className="w-5 h-5 text-yellow-400" />
                             Automations
                         </h1>
@@ -125,7 +125,7 @@ export default function AutomationsPage() {
                             {visibleAutomations.length} active rule{visibleAutomations.length !== 1 ? 's' : ''}
                         </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {/* AI Auto-Reply Toggle */}
                         {aiLoading ? (
                             <Loader2 className="w-4 h-4 text-neutral-500 animate-spin" />
@@ -168,7 +168,7 @@ export default function AutomationsPage() {
 
                 {/* AI Context Panel */}
                 {showAiContext && (
-                    <div className="rounded-2xl border border-purple-500/20 bg-purple-500/5 p-5 animate-in fade-in slide-in-from-top-2 duration-200 space-y-3">
+                    <div className="rounded-2xl border border-purple-500/20 bg-purple-500/5 p-4 sm:p-5 animate-in fade-in slide-in-from-top-2 duration-200 space-y-3">
                         <div className="flex items-center gap-2">
                             <Brain className="w-4 h-4 text-purple-400" />
                             <span className="text-sm font-semibold text-purple-300">AI Personality Context</span>
@@ -218,7 +218,7 @@ export default function AutomationsPage() {
 
                 {/* Create Form (Collapsible) */}
                 {showCreateForm && (
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-6 animate-in fade-in slide-in-from-top-2 duration-300">
                         <CreateRuleForm
                             userId={userId}
                             triggerSource={activeTab}
@@ -232,7 +232,7 @@ export default function AutomationsPage() {
 
                 {/* Ice Breakers (DM only) */}
                 {activeTab === 'dm' && (
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-6">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-6">
                         <IceBreakersManager />
                     </div>
                 )}

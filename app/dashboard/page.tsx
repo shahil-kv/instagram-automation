@@ -57,11 +57,11 @@ export default function DashboardPage() {
     }
 
     return (
-        <div className="p-8 space-y-8 animate-in fade-in duration-700">
+        <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 animate-in fade-in duration-700">
             {/* Welcome Section */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold text-white">Welcome back, {username}</h1>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-white break-words">Welcome back, {username}</h1>
                     <p className="text-muted-foreground">Here's what's happening with your automations today.</p>
                 </div>
             </div>
@@ -95,8 +95,8 @@ export default function DashboardPage() {
             </div>
 
             {/* Recent Activity */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <Card className="p-6 bg-white/5 border-white/10 backdrop-blur-sm">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+                <Card className="p-4 sm:p-6 bg-white/5 border-white/10 backdrop-blur-sm">
                     <h3 className="font-bold text-white mb-4">Recent Activity</h3>
                     <div className="space-y-4">
                         {stats?.recentActivity && stats.recentActivity.length > 0 ? (
@@ -124,7 +124,7 @@ export default function DashboardPage() {
                     </div>
                 </Card>
 
-                <Card className="p-6 bg-white/5 border-white/10 backdrop-blur-sm">
+                <Card className="p-4 sm:p-6 bg-white/5 border-white/10 backdrop-blur-sm">
                     <h3 className="font-bold text-white mb-4">Quick Actions</h3>
                     <div className="grid grid-cols-2 gap-4">
                         <div className="h-24 rounded-xl border border-dashed border-white/20 flex flex-col items-center justify-center hover:bg-white/5 cursor-pointer transition-colors group">
@@ -144,7 +144,7 @@ export default function DashboardPage() {
 
 function StatCard({ title, value, trend, icon }: { title: string, value: string, trend: string, icon: React.ReactNode }) {
     return (
-        <Card className="p-6 bg-black/40 border-white/10 backdrop-blur-md hover:bg-white/5 transition-colors cursor-pointer group">
+        <Card className="p-4 sm:p-6 bg-black/40 border-white/10 backdrop-blur-md hover:bg-white/5 transition-colors cursor-pointer group">
             <div className="flex items-start justify-between mb-2">
                 <span className="p-2 bg-white/5 rounded-lg ring-1 ring-white/10 group-hover:ring-purple-500/50 transition-all">{icon}</span>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground`}>
@@ -152,7 +152,7 @@ function StatCard({ title, value, trend, icon }: { title: string, value: string,
                 </span>
             </div>
             <div className="mt-4">
-                <p className="text-3xl font-bold text-white tracking-tight">{value}</p>
+                <p className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{value}</p>
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mt-1">{title}</p>
             </div>
         </Card>

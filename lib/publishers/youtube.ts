@@ -96,7 +96,13 @@ export async function tickYouTube(
 
         if (res.status === 200 || res.status === 201) {
             const video = await res.json()
-            return publishedResult(video?.id ?? null, video?.status?.privacyStatus ?? privacy)
+            const videoId = video?.id ?? null
+
+            if (videoId && job.thumbnail_url) {
+                await setThumbnail(accessToken, videoId, job.thumbnail_url)
+            }
+
+            return publishedResult(videoId, video?.status?.privacyStatus ?? privacy)
         }
 
         const body = await res.text()
@@ -110,7 +116,12 @@ export async function tickYouTube(
 
     // All bytes sent but no terminal response — ask YouTube where it stands.
     const final = await queryUploadOffset(uploadUrl, source.size)
-    if (final.kind === "done") return publishedResult(final.videoId, privacy)
+    if (final.kind === "done") {
+        if (final.videoId && job.thumbnail_url) {
+            await setThumbnail(accessToken, final.videoId, job.thumbnail_url)
+        }
+        return publishedResult(final.videoId, privacy)
+    }
 
     return {
         status: "processing",
@@ -118,6 +129,48 @@ export async function tickYouTube(
         stage: "yt_processing",
         note: "Waiting for YouTube to finish processing",
         progress: 100,
+    }
+}
+
+/**
+ * Apply a custom thumbnail to an uploaded video.
+ *
+ * Best-effort on purpose: custom thumbnails need a phone-verified channel, so
+ * an unverified one gets a 403 here. That must not turn a successful upload
+ * into a failed post — YouTube just keeps its auto-generated frame.
+ */
+async function setThumbnail(accessToken: string, videoId: string, thumbnailUrl: string) {
+    try {
+        const image = await fetch(thumbnailUrl)
+        if (!image.ok) {
+            console.warn(`[youtube] Could not read thumbnail (${image.status})`)
+            return
+        }
+
+        const bytes = new Uint8Array(await image.arrayBuffer())
+        const res = await fetch(
+            `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${videoId}&uploadType=media`,
+            {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": image.headers.get("content-type") || "image/jpeg",
+                },
+                body: bytes,
+            },
+        )
+
+        if (!res.ok) {
+            const detail = await res.text()
+            console.warn(
+                `[youtube] Thumbnail rejected (${res.status}). Custom thumbnails require a verified channel. ${detail.slice(0, 200)}`,
+            )
+            return
+        }
+
+        console.log(`[youtube] Thumbnail set on ${videoId}`)
+    } catch (err) {
+        console.warn("[youtube] Thumbnail upload threw:", err)
     }
 }
 
@@ -180,10 +233,12 @@ async function openSession(
     privacy: string,
 ): Promise<string> {
     // Unlike Instagram, these stay separate — a real title and a real description.
-    const { title, description } = buildYouTubeFields({
-        title: job.title,
-        description: job.caption,
-    })
+    // `youtube_shorts` only appends #Shorts: YouTube decides Shorts from the
+    // file's aspect ratio and duration, and no API field can override that.
+    const { title, description } = buildYouTubeFields(
+        { title: job.title, description: job.caption },
+        { shorts: job.youtube_shorts !== false },
+    )
 
     const metadata = {
         snippet: {

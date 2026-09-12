@@ -6,6 +6,15 @@ import type { Platform } from "@/lib/publishers/types"
 
 const SUPPORTED: Platform[] = ["instagram", "youtube"]
 
+/** True when Postgres/PostgREST is telling us a column does not exist. */
+function isMissingColumn(error: { code?: string; message?: string }) {
+    return (
+        error.code === "42703" ||
+        error.code === "PGRST204" ||
+        /column .* does not exist|could not find the '.*' column/i.test(error.message ?? "")
+    )
+}
+
 /**
  * Create one post and its per-platform targets.
  * POST /api/post
@@ -21,7 +30,8 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Not signed in" }, { status: 401 })
         }
 
-        const { videoUrl, title, caption, thumbnailUrl, platforms, privacy } = await request.json()
+        const { videoUrl, title, caption, thumbnailUrl, platforms, privacy, youtubeShorts } =
+            await request.json()
 
         if (!videoUrl) {
             return NextResponse.json({ error: "Missing videoUrl" }, { status: 400 })
@@ -62,17 +72,32 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        const { data: job, error: jobError } = await supabase
+        const base = {
+            user_id: session.userId,
+            video_url: videoUrl,
+            thumbnail_url: thumbnailUrl || null,
+            title: title || null,
+            caption: caption || null,
+        }
+
+        let { data: job, error: jobError } = await supabase
             .from("post_jobs")
-            .insert({
-                user_id: session.userId,
-                video_url: videoUrl,
-                thumbnail_url: thumbnailUrl || null,
-                title: title || null,
-                caption: caption || null,
-            })
+            // Default on: a vertical clip under 3 minutes is a Short.
+            .insert({ ...base, youtube_shorts: youtubeShorts !== false })
             .select()
             .single()
+
+        // 42703/PGRST204 = the column is not there yet, i.e.
+        // scripts/11-shorts-and-thumbnails.sql has not been run. Fall back so
+        // posting keeps working; #Shorts just defaults on in the publisher.
+        if (jobError && isMissingColumn(jobError)) {
+            console.warn(
+                "[Post] post_jobs.youtube_shorts is missing — run scripts/11-shorts-and-thumbnails.sql. Falling back.",
+            )
+            const retry = await supabase.from("post_jobs").insert(base).select().single()
+            job = retry.data
+            jobError = retry.error
+        }
 
         if (jobError) throw jobError
 
@@ -114,7 +139,8 @@ export async function GET(request: NextRequest) {
 
         const { data, error } = await supabase
             .from("post_jobs")
-            .select("id, video_url, thumbnail_url, title, caption, created_at, post_targets(*)")
+            // Select * rather than naming columns: youtube_shorts may not exist yet.
+            .select("*, post_targets(*)")
             .eq("user_id", session.userId)
             .order("created_at", { ascending: false })
             .limit(limit)

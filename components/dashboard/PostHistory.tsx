@@ -2,7 +2,10 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, Instagram, Youtube, Film } from "lucide-react"
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Loader2, Instagram, Youtube, Film, RotateCw, ExternalLink } from "lucide-react"
+import { toast } from "sonner"
 
 type Target = {
     id: string
@@ -24,9 +27,43 @@ export type PostJobRow = {
 interface PostHistoryProps {
     jobs: PostJobRow[]
     loading: boolean
+    onRefresh?: () => void
 }
 
-export function PostHistory({ jobs, loading }: PostHistoryProps) {
+const TICK_INTERVAL_MS = 4000
+
+export function PostHistory({ jobs, loading, onRefresh }: PostHistoryProps) {
+    const [resuming, setResuming] = useState<string | null>(null)
+
+    /**
+     * Publishing is driven by the browser polling /api/post/tick, so closing
+     * the tab mid-publish leaves a job parked at `processing`. This picks it
+     * back up from wherever it stopped — both publishers are resumable, so
+     * nothing is re-uploaded or double-posted.
+     */
+    const resume = async (jobId: string) => {
+        setResuming(jobId)
+        try {
+            while (true) {
+                const res = await fetch("/api/post/tick", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ jobId }),
+                })
+                const data = await res.json()
+                if (!res.ok) throw new Error(data.error || "Could not resume")
+                if (data.done) break
+                await new Promise((r) => setTimeout(r, TICK_INTERVAL_MS))
+            }
+            toast.success("Finished publishing")
+            onRefresh?.()
+        } catch (err: any) {
+            toast.error(err.message || "Could not resume")
+        } finally {
+            setResuming(null)
+        }
+    }
+
     return (
         <Card className="bg-white/5 border-white/10">
             <CardHeader>
@@ -47,29 +84,47 @@ export function PostHistory({ jobs, loading }: PostHistoryProps) {
                     <div className="divide-y divide-white/5">
                         {jobs.map((job) => (
                             <div key={job.id} className="py-3 first:pt-0 last:pb-0">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-medium text-white truncate">
-                                            {job.title || job.caption || "Untitled"}
-                                        </p>
-                                        <p className="text-xs text-neutral-500">
-                                            {new Date(job.created_at).toLocaleString()}
-                                        </p>
-                                    </div>
-                                    <div className="flex gap-1.5 shrink-0">
-                                        {job.post_targets?.map((target) => (
-                                            <TargetBadge key={target.id} target={target} />
-                                        ))}
-                                    </div>
+                                <div className="min-w-0">
+                                    <p className="truncate text-sm font-medium text-white">
+                                        {job.title || job.caption || "Untitled"}
+                                    </p>
+                                    <p className="text-xs text-neutral-500">
+                                        {new Date(job.created_at).toLocaleString()}
+                                    </p>
                                 </div>
 
-                                {job.post_targets
-                                    ?.filter((target) => target.status === "failed" && target.error_message)
-                                    .map((target) => (
-                                        <p key={target.id} className="mt-1.5 text-xs text-red-400/80 break-words">
-                                            {target.platform}: {target.error_message}
-                                        </p>
+                                {/* One row per platform, named. An icon alone left it
+                                    unclear which platform a status belonged to, and made
+                                    the permalink look unclickable. */}
+                                <div className="mt-2 space-y-1.5">
+                                    {job.post_targets?.map((target) => (
+                                        <TargetRow key={target.id} target={target} />
                                     ))}
+                                </div>
+
+                                {job.post_targets?.some(
+                                    (t) => t.status === "pending" || t.status === "processing",
+                                ) && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={resuming === job.id}
+                                        onClick={() => resume(job.id)}
+                                        className="mt-2 h-7 border-white/15 text-xs"
+                                    >
+                                        {resuming === job.id ? (
+                                            <>
+                                                <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
+                                                Finishing…
+                                            </>
+                                        ) : (
+                                            <>
+                                                <RotateCw className="mr-1.5 h-3 w-3" />
+                                                Resume
+                                            </>
+                                        )}
+                                    </Button>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -86,25 +141,46 @@ const STATUS_STYLES: Record<Target["status"], string> = {
     pending: "border-white/20 text-neutral-400",
 }
 
-function TargetBadge({ target }: { target: Target }) {
+const PLATFORM_LABEL: Record<Target["platform"], string> = {
+    instagram: "Instagram Reel",
+    youtube: "YouTube",
+}
+
+function TargetRow({ target }: { target: Target }) {
     const Icon = target.platform === "instagram" ? Instagram : Youtube
-    const label =
-        target.status === "published" && target.platform === "youtube" && target.privacy
-            ? target.privacy
-            : target.status
-
-    const content = (
-        <Badge variant="outline" className={`gap-1 ${STATUS_STYLES[target.status]}`}>
-            <Icon className="w-3 h-3" />
-            <span className="capitalize">{label}</span>
-        </Badge>
-    )
-
-    if (!target.permalink) return content
 
     return (
-        <a href={target.permalink} target="_blank" rel="noreferrer" title="Open post">
-            {content}
-        </a>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Icon
+                className={`h-3.5 w-3.5 shrink-0 ${
+                    target.platform === "instagram" ? "text-pink-500" : "text-red-500"
+                }`}
+            />
+            <span className="text-neutral-300">{PLATFORM_LABEL[target.platform]}</span>
+
+            <Badge variant="outline" className={STATUS_STYLES[target.status]}>
+                <span className="capitalize">{target.status}</span>
+            </Badge>
+
+            {target.platform === "youtube" && target.privacy && (
+                <span className="text-[10px] capitalize text-neutral-500">{target.privacy}</span>
+            )}
+
+            {target.permalink && (
+                <a
+                    href={target.permalink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-auto inline-flex items-center gap-1 text-neutral-400 underline underline-offset-2 hover:text-white"
+                >
+                    View
+                    <ExternalLink className="h-3 w-3" />
+                </a>
+            )}
+
+            {target.status === "failed" && target.error_message && (
+                <p className="w-full break-words text-red-400/90">{target.error_message}</p>
+            )}
+        </div>
     )
 }

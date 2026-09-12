@@ -12,6 +12,14 @@ export const maxDuration = 300
 const MAX_ATTEMPTS = 40
 
 /**
+ * How long a tick's claim on a target stays valid.
+ *
+ * Long enough to cover a full YouTube chunk run (the publisher yields at 45s),
+ * short enough that a crashed request cannot strand a post for long.
+ */
+const LOCK_TTL_MS = 2 * 60 * 1000
+
+/**
  * Advance every unfinished target of a post by one step.
  * POST /api/post/tick  Body: { jobId }
  *
@@ -36,7 +44,9 @@ export async function POST(request: NextRequest) {
         // Scoped by user_id so a guessed job id reveals nothing.
         const { data: job } = await supabase
             .from("post_jobs")
-            .select("id, user_id, video_url, thumbnail_url, title, caption")
+            // Select * rather than naming columns: youtube_shorts may not exist yet,
+            // and an absent one simply reads as undefined (Shorts default on).
+            .select("*")
             .eq("id", jobId)
             .eq("user_id", session.userId)
             .maybeSingle()
@@ -66,6 +76,14 @@ export async function POST(request: NextRequest) {
                 continue
             }
 
+            // Exactly one caller may advance a target at a time. Without this,
+            // an overlapping tick (composer polling while Resume is pressed, or
+            // two open tabs) could publish the same Reel twice.
+            if (!(await claim(supabase, target))) {
+                notes[target.platform] = "Already publishing…"
+                continue
+            }
+
             try {
                 const result =
                     target.platform === "instagram"
@@ -82,6 +100,8 @@ export async function POST(request: NextRequest) {
                     status: "failed",
                     error_message: error.message ?? "Unknown error",
                 })
+            } finally {
+                await release(supabase, target)
             }
         }
 
@@ -116,6 +136,54 @@ export async function POST(request: NextRequest) {
         console.error("[Post] Tick failed:", error)
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
+}
+
+/**
+ * Try to take the lock on a target.
+ *
+ * The filter is the guard: the update only matches a row whose claim is absent
+ * or stale, so a concurrent tick gets zero rows back and stands down. Returns
+ * true when this caller may proceed.
+ */
+async function claim(supabase: any, target: PostTarget): Promise<boolean> {
+    const staleBefore = new Date(Date.now() - LOCK_TTL_MS).toISOString()
+
+    const { data, error } = await supabase
+        .from("post_targets")
+        .update({ locked_at: new Date().toISOString() })
+        .eq("id", target.id)
+        .or(`locked_at.is.null,locked_at.lt.${staleBefore}`)
+        .select("id")
+
+    // Column absent = scripts/11 has not run yet. Proceed unlocked rather than
+    // block posting; the race it guards against needs two concurrent ticks.
+    if (error) {
+        if (isMissingColumn(error)) return true
+        console.warn(`[Post] Could not claim ${target.platform}:`, error.message)
+        return false
+    }
+
+    return (data?.length ?? 0) > 0
+}
+
+async function release(supabase: any, target: PostTarget) {
+    const { error } = await supabase
+        .from("post_targets")
+        .update({ locked_at: null })
+        .eq("id", target.id)
+
+    if (error && !isMissingColumn(error)) {
+        console.warn(`[Post] Could not release ${target.platform}:`, error.message)
+    }
+}
+
+/** True when Postgres/PostgREST is telling us a column does not exist. */
+function isMissingColumn(error: { code?: string; message?: string }) {
+    return (
+        error.code === "42703" ||
+        error.code === "PGRST204" ||
+        /column .* does not exist|could not find the '.*' column/i.test(error.message ?? "")
+    )
 }
 
 async function persist(supabase: any, target: PostTarget, result: TickResult) {

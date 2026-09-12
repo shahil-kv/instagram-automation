@@ -8,7 +8,7 @@ export default function SettingsPage() {
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-gray-500/20 to-slate-500/20 flex items-center justify-center mb-6 ring-1 ring-white/10">
                 <Settings className="w-10 h-10 text-slate-400" />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">System Settings</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">System Settings</h1>
             <p className="text-muted-foreground max-w-md mx-auto mb-8">
                 Configure your account preferences, notifications, and integration settings here.
             </p>

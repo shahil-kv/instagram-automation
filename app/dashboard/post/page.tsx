@@ -68,19 +68,19 @@ export default function PostPage() {
     return (
         <div className="space-y-6 max-w-5xl mx-auto p-4 md:p-6 pb-20">
             <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold text-white">Post</h1>
+                <h1 className="text-2xl sm:text-3xl font-bold text-white">Post</h1>
                 <p className="text-neutral-400">
                     Upload one video and send it to Instagram and YouTube in a single pass.
                 </p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+                <div className="order-2 lg:order-1 lg:col-span-2 space-y-6">
                     <PostComposer youtube={youtube} onPosted={loadJobs} />
-                    <PostHistory jobs={jobs} loading={jobsLoading} />
+                    <PostHistory jobs={jobs} loading={jobsLoading} onRefresh={loadJobs} />
                 </div>
 
-                <div className="lg:col-span-1">
+                <div className="order-1 lg:order-2 lg:col-span-1">
                     <div className="sticky top-6 space-y-4">
                         <Card className="bg-white/5 border-white/10">
                             <CardContent className="p-4 flex items-center gap-3">

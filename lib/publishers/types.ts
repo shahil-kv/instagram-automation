@@ -9,6 +9,8 @@ export type PostJob = {
     thumbnail_url: string | null
     title: string | null
     caption: string | null
+    /** Append #Shorts to the YouTube description. Defaults to true. */
+    youtube_shorts?: boolean | null
 }
 
 export type PostTarget = {

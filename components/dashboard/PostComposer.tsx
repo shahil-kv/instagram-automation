@@ -33,9 +33,11 @@ import {
     buildInstagramCaption,
     buildYouTubeFields,
     instagramFirstLine,
+    shortsEligibility,
     IG_CAPTION_MAX,
     TITLE_MAX,
 } from "@/lib/publishers/captions"
+import { ThumbnailPicker, type PickedThumbnail } from "./ThumbnailPicker"
 import type { YouTubeStatus } from "./YouTubeConnect"
 
 /** How often we ask the server to advance the post. */
@@ -80,6 +82,18 @@ const STEPS: Record<Platform, { stage: string; label: string }[]> = {
 
 function formatMb(bytes: number) {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/**
+ * Megabits per second implied by size and duration.
+ *
+ * This is the number that actually decides whether a clip fits, not the
+ * resolution — though resolution drives it, because a phone shooting 2K or 4K
+ * picks a much higher bitrate than the same phone at 1080p.
+ */
+function bitrateMbps(bytes: number, seconds: number) {
+    if (!seconds) return 0
+    return (bytes * 8) / seconds / 1_000_000
 }
 
 function formatDuration(seconds: number) {
@@ -149,6 +163,8 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
     const [platformProgress, setPlatformProgress] = useState<Record<string, number>>({})
     const [platformStage, setPlatformStage] = useState<Record<string, string>>({})
     const [maxBytes, setMaxBytes] = useState<number | null>(null)
+    const [thumb, setThumb] = useState<PickedThumbnail | null>(null)
+    const [thumbBusy, setThumbBusy] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
 
     const busy = phase === "uploading" || phase === "publishing"
@@ -184,9 +200,13 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
     // Exactly what each platform will receive, built with the same functions
     // the publishers use, so the preview cannot drift from what gets posted.
     const igCaption = buildInstagramCaption({ title, description })
-    const ytFields = buildYouTubeFields({ title, description })
+    // Shorts is the only mode we publish in, so the tag always goes on.
+    const ytFields = buildYouTubeFields({ title, description }, { shorts: true })
 
     const oversize = maxBytes !== null && file !== null && file.size > maxBytes
+
+    // YouTube decides Shorts from the file, so surface that verdict up front.
+    const shorts = meta ? shortsEligibility(meta.width, meta.height, meta.duration) : null
 
     const reelWarning = !meta
         ? null
@@ -195,6 +215,34 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
           : meta.duration > REEL_MAX_SECONDS
             ? `Instagram caps Reels at 15min — this clip is ${formatDuration(meta.duration)}.`
             : null
+
+    /** Stage the thumbnail and return its public URL, or null. */
+    const uploadThumbnail = async (): Promise<string | null> => {
+        if (!thumb) return null
+
+        const signRes = await fetch("/api/post/upload-url", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileName: "thumb.jpg", kind: "thumbnail" }),
+        })
+        const signed = await signRes.json()
+        if (!signRes.ok) {
+            // A thumbnail is a nice-to-have; never sink the post over it.
+            console.warn("[PostComposer] Thumbnail signing failed:", signed.error)
+            return null
+        }
+
+        const put = await fetch(signed.uploadUrl, {
+            method: "PUT",
+            headers: { "Content-Type": thumb.blob.type || "image/jpeg" },
+            body: thumb.blob,
+        })
+        if (!put.ok) {
+            console.warn("[PostComposer] Thumbnail upload failed:", put.status)
+            return null
+        }
+        return signed.publicUrl as string
+    }
 
     const toggle = (platform: Platform) => {
         setPlatforms((current) =>
@@ -207,6 +255,7 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
     const reset = () => {
         setFile(null)
         setMeta(null)
+        setThumb(null)
         setTitle("")
         setDescription("")
         setUploadPercent(0)
@@ -283,6 +332,11 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
 
             await uploadWithProgress(signed.uploadUrl, file, setUploadPercent)
 
+            // Thumbnail rides along after the video so a failure here is cheap.
+            setThumbBusy(true)
+            const thumbnailUrl = await uploadThumbnail()
+            setThumbBusy(false)
+
             // 2. Register the post and its targets. `caption` is the DB column
             //    that holds the description; the publishers shape it per platform.
             const createRes = await fetch("/api/post", {
@@ -292,8 +346,10 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
                     videoUrl: signed.publicUrl,
                     title: title.trim() || file.name.replace(/\.[^/.]+$/, ""),
                     caption: description,
+                    thumbnailUrl,
                     platforms,
                     privacy,
+                    youtubeShorts: true,
                 }),
             })
 
@@ -365,22 +421,27 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
                                 />
                             </div>
 
-                            <div className="flex items-center gap-2 text-xs">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                                 <Film className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-                                <span className="text-white truncate">{file.name}</span>
-                                <span className="text-neutral-500 shrink-0">
-                                    {(file.size / 1024 / 1024).toFixed(1)} MB
-                                    {meta && ` · ${formatDuration(meta.duration)} · ${meta.width}×${meta.height}`}
-                                </span>
+                                <span className="min-w-0 flex-1 truncate text-white">{file.name}</span>
                                 {!busy && (
                                     <button
                                         type="button"
                                         onClick={() => inputRef.current?.click()}
-                                        className="ml-auto shrink-0 text-neutral-400 underline hover:text-white"
+                                        className="shrink-0 text-neutral-400 underline hover:text-white"
                                     >
                                         Replace
                                     </button>
                                 )}
+                                <span className="w-full text-neutral-500">
+                                    {formatMb(file.size)}
+                                    {meta && (
+                                        <>
+                                            {` · ${formatDuration(meta.duration)} · ${meta.width}×${meta.height}`}
+                                            {` · ${bitrateMbps(file.size, meta.duration).toFixed(1)} Mbps`}
+                                        </>
+                                    )}
+                                </span>
                             </div>
 
                             {oversize && maxBytes !== null && (
@@ -391,10 +452,17 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
                                         {formatMb(maxBytes)} limit.
                                     </p>
                                     <p className="pl-5 text-xs text-neutral-400">
-                                        Compress it below {formatMb(maxBytes)}, or raise the cap by
-                                        upgrading the Supabase plan. Instagram needs the file at a public
-                                        URL, so it has to be staged somewhere either way.
+                                        {meta && meta.height > 1920
+                                            ? `This is ${meta.width}×${meta.height} at ${bitrateMbps(file.size, meta.duration).toFixed(1)} Mbps. Instagram caps Reels at 1080×1920 and re-encodes anyway, so the extra resolution is discarded — downscaling costs you nothing visible.`
+                                            : `That is ${bitrateMbps(file.size, meta?.duration ?? 0).toFixed(1)} Mbps. Re-encoding at a lower bitrate will fit it without visible loss.`}
                                     </p>
+                                    <p className="pl-5 text-[10px] text-neutral-500">
+                                        Run this, then pick the new file:
+                                    </p>
+                                    <code className="ml-5 block overflow-x-auto rounded bg-black/60 p-2 text-[10px] text-neutral-300">
+                                        ffmpeg -i &quot;{file.name}&quot; -c:v libx264 -crf 24 -preset slow -vf
+                                        &quot;scale=-2:1920&quot; -c:a aac -b:a 128k out.mp4
+                                    </code>
                                 </div>
                             )}
 
@@ -404,6 +472,14 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
                                     {reelWarning}
                                 </p>
                             )}
+
+                            <ThumbnailPicker
+                                videoUrl={previewUrl}
+                                duration={meta?.duration ?? 0}
+                                disabled={busy}
+                                picked={thumb}
+                                onPick={setThumb}
+                            />
                         </div>
                     ) : (
                         <label
@@ -565,7 +641,31 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
                         </div>
 
                         {platforms.includes("youtube") && (
-                            <div className="pl-8 space-y-2">
+                            <div className="pl-8 space-y-3">
+                                {/* Shorts is the only mode we publish in. YouTube has no
+                                    API flag for it — it classifies from the file — so the
+                                    honest thing is to show its verdict, not a switch. */}
+                                <div className="space-y-1">
+                                    <p className="text-xs font-medium text-white">Posting as a Short</p>
+                                    {shorts && !shorts.eligible ? (
+                                        <p className="flex gap-2 text-xs text-amber-400">
+                                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                            {shorts.reason}
+                                        </p>
+                                    ) : shorts?.eligible ? (
+                                        <p className="text-xs text-emerald-400/80">
+                                            {meta?.width}×{meta?.height} at{" "}
+                                            {formatDuration(meta?.duration ?? 0)} — qualifies. #Shorts is
+                                            appended to the description.
+                                        </p>
+                                    ) : (
+                                        <p className="text-[10px] text-neutral-500">
+                                            YouTube decides this from the file: square or vertical, 3
+                                            minutes or under.
+                                        </p>
+                                    )}
+                                </div>
+
                                 <Select value={privacy} onValueChange={setPrivacy} disabled={busy}>
                                     <SelectTrigger className="h-9 text-sm border-white/15 bg-black/40">
                                         <SelectValue />
@@ -607,24 +707,41 @@ export function PostComposer({ youtube, onPosted }: PostComposerProps) {
                 )}
 
                 {/* Actions */}
-                <div className="flex gap-2">
-                    <Button onClick={submit} disabled={busy || !file || oversize} className="flex-1">
-                        {busy ? (
-                            <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                {phase === "uploading" ? "Uploading…" : "Publishing…"}
-                            </>
-                        ) : (
-                            "Post now"
-                        )}
+                {/* Once a post is finished the primary action becomes "start a new
+                    one". Leaving "Post now" armed invites an accidental duplicate. */}
+                {phase === "done" ? (
+                    <Button onClick={reset} className="w-full">
+                        <X className="mr-2 h-4 w-4 rotate-45" />
+                        New post
                     </Button>
-                    {(file || targets.length > 0) && !busy && (
-                        <Button variant="ghost" onClick={reset} className="text-neutral-400">
-                            <X className="w-4 h-4 mr-1" />
-                            Clear
+                ) : (
+                    <div className="flex gap-2">
+                        <Button
+                            onClick={submit}
+                            disabled={busy || !file || oversize}
+                            className="flex-1"
+                        >
+                            {busy ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    {phase === "uploading"
+                                        ? thumbBusy
+                                            ? "Staging thumbnail…"
+                                            : "Uploading…"
+                                        : "Publishing…"}
+                                </>
+                            ) : (
+                                "Post now"
+                            )}
                         </Button>
-                    )}
-                </div>
+                        {file && !busy && (
+                            <Button variant="ghost" onClick={reset} className="text-neutral-400">
+                                <X className="mr-1 h-4 w-4" />
+                                Clear
+                            </Button>
+                        )}
+                    </div>
+                )}
             </CardContent>
         </Card>
     )

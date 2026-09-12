@@ -22,13 +22,15 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: "Not signed in" }, { status: 401 })
         }
 
-        const { fileName, fileSize } = await request.json()
+        const { fileName, fileSize, kind } = await request.json()
+        const isThumbnail = kind === "thumbnail"
         const supabase = await getSupabaseServerClient()
         const maxBytes = await getUploadLimitBytes(supabase)
 
         // Reject before a single byte moves. Storage returns EntityTooLarge only
         // after receiving the whole file, which wastes the entire upload.
-        if (typeof fileSize === "number" && fileSize > maxBytes) {
+        // Thumbnails are images and nowhere near the ceiling, so skip the check.
+        if (!isThumbnail && typeof fileSize === "number" && fileSize > maxBytes) {
             const asMb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1)
             return NextResponse.json(
                 {
@@ -46,9 +48,12 @@ export async function POST(request: NextRequest) {
             .pop()
             ?.toLowerCase()
             .replace(/[^a-z0-9]/g, "")
-        const safeExtension = extension && extension.length <= 5 ? extension : "mp4"
+        const fallback = isThumbnail ? "jpg" : "mp4"
+        const safeExtension = extension && extension.length <= 5 ? extension : fallback
 
-        const path = `${session.userId}/${Date.now()}.${safeExtension}`
+        // Thumbnails live in their own prefix so cleanup can tell them apart.
+        const folder = isThumbnail ? `${session.userId}/thumbs` : session.userId
+        const path = `${folder}/${Date.now()}.${safeExtension}`
 
         const { data, error } = await supabase.storage
             .from(MEDIA_BUCKET)

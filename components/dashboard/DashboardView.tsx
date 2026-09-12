@@ -98,12 +98,12 @@ export function DashboardView({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-8 py-10 space-y-8 max-w-[1600px] mx-auto w-full z-0 scrollbar-hide">
-          <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
-            <div className="xl:col-span-8 space-y-8">
-              <div className="flex justify-between items-end">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-6 sm:space-y-8 max-w-[1600px] mx-auto w-full z-0 scrollbar-hide">
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 xl:gap-8 items-start">
+            <div className="xl:col-span-8 space-y-6 sm:space-y-8">
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end">
                 <div>
-                  <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60 mb-2">
+                  <h1 className="text-2xl sm:text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60 mb-2">
                     Start Automating
                   </h1>
                   <p className="text-muted-foreground text-sm max-w-lg">
